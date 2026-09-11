@@ -83,10 +83,15 @@ def decode_0x0e_full(data):
     return faders, data[97], data[98]
 
 
-DEBUG_MASTER = True  # temporary: log every USB-level Master change with a timestamp, to
-                      # tell apart "values are genuinely missing on the wire/in our poll
-                      # loop" from "values arrive fine but the browser doesn't render them"
+# Off by default -- run with SMARTFADE_DEBUG=1 to get per-control change logging (which
+# control changed, when, to what) plus a liveness heartbeat and visibility into any
+# announce/ack handshake failures. This is what found the decode_announce stride bug
+# (Part 26 of the RE notes) and is worth keeping around for the next time something looks
+# wrong: it distinguishes "nothing arrived on the wire" from "arrived but decoded/rendered
+# wrong" far faster than guessing.
+DEBUG = os.environ.get("SMARTFADE_DEBUG", "") not in ("", "0")
 _last_logged_master = None
+_last_logged_faders = {mode: [0] * 24 for mode in FADER_MODES}
 _t_start = time.time()
 
 
@@ -96,12 +101,20 @@ def handle_payload(obj_type, data):
         full = decode_0x0e_full(data)
         if full is not None:
             faders, bumps, master = full
-            if DEBUG_MASTER and master != _last_logged_master:
+            if DEBUG and master != _last_logged_master:
                 print(f"[master] t={time.time() - _t_start:7.3f}  {_last_logged_master} -> {master}",
                       file=sys.stderr)
                 _last_logged_master = master
             with state_condition:
-                state["faders"][state["fader_mode"]] = faders
+                mode = state["fader_mode"]
+                if DEBUG and faders != _last_logged_faders[mode]:
+                    changed = {i + 1: (_last_logged_faders[mode][i], v)
+                               for i, v in enumerate(faders) if v != _last_logged_faders[mode][i]}
+                    print(f"[faders:{mode}] t={time.time() - _t_start:7.3f}  "
+                          f"confirmed={state['fader_mode_confirmed']}  changed={changed}",
+                          file=sys.stderr)
+                    _last_logged_faders[mode] = faders
+                state["faders"][mode] = faders
                 state["bumps"] = bumps
                 state["master"] = master
                 state["last_update"] = time.time()
@@ -109,11 +122,15 @@ def handle_payload(obj_type, data):
     elif obj_type == 0x17:
         mode = sfl.decode_0x17(data)
         if mode in FADER_MODES:
+            if DEBUG:
+                print(f"[mode] t={time.time() - _t_start:7.3f}  "
+                      f"{state['fader_mode']} -> {mode} (now confirmed)", file=sys.stderr)
             update_state(fader_mode=mode, fader_mode_confirmed=True)
 
 
 def poll_forever(stop_event):
     """Connect, poll until something goes wrong or the device disappears, then retry."""
+    did_startup_reset = False
     while not stop_event.is_set():
         dev = usb.core.find(idVendor=sfl.VENDOR_ID, idProduct=sfl.PRODUCT_ID)
         found = sfl.find_bulk_interface(dev) if dev is not None else None
@@ -121,6 +138,31 @@ def poll_forever(stop_event):
             update_state(connected=False)
             time.sleep(2.0)
             continue
+
+        if not did_startup_reset:
+            # The console sends a one-shot type=0x28 announce of every currently non-default
+            # control (fader/master/bumps/etc, whatever isn't at its power-on default) as the
+            # very FIRST reply to the very first idle poll of a USB session -- confirmed against
+            # traces/tracec.pcapng, where that announce (listing [0x0e, 0x16], because Bumps was
+            # non-zero) arrives before any other request, including SmartSoft's own type=0x27
+            # GUI requests (which fetch the static show catalog -- names/groups/cues -- and are
+            # unrelated to this). It's genuinely one-shot per session: once anything has connected
+            # since the console was last plugged in/powered (an earlier run of this script, a
+            # crash, SmartSoft itself), a plain re-claim of the interface will NOT get it again --
+            # only a fresh USB session will. Forcing a reset here (once, on our very first
+            # connection attempt) guarantees we always start our own fresh session instead of
+            # hoping nothing got there first, so faders/master/bumps that are already non-default
+            # show up immediately without the user having to touch a control. See RE notes Part 27.
+            did_startup_reset = True
+            try:
+                dev.reset()
+                print("[webapp] startup reset (to force a fresh USB session and catch the "
+                      "console's one-shot initial-state announce)", file=sys.stderr)
+                time.sleep(2.0)
+            except usb.core.USBError as e:
+                print(f"[webapp] startup reset failed: {e} -- continuing without it", file=sys.stderr)
+            continue
+
         intf_num, alt, ep_in, ep_out = found
 
         try:
@@ -143,7 +185,7 @@ def poll_forever(stop_event):
         good_headers = 0
         last_heartbeat = time.time()
         while not stop_event.is_set():
-            if DEBUG_MASTER and time.time() - last_heartbeat >= 3.0:
+            if DEBUG and time.time() - last_heartbeat >= 10.0:
                 # Distinguishes "still polling fine, just nothing new to report" from a
                 # genuine stall -- if this line stops appearing, the loop itself is stuck
                 # somewhere above (not in the announce/ack path, which has its own DROPPED
@@ -186,34 +228,37 @@ def poll_forever(stop_event):
 
             if obj_type == 0x28:
                 for announced_type in sfl.decode_announce(data):
-                    tag = f"[announce type=0x{announced_type:02x} t={time.time() - _t_start:7.3f}]"
                     # NOTE: every `continue` below silently drops this announced update with
-                    # NO retry -- if this is where the reported "misses the last state" is
-                    # coming from, one of these DEBUG_MASTER lines should show up right when
-                    # it happens. Not fixing this yet; logging first to confirm before changing
-                    # behavior, per the user's request to start by understanding it.
+                    # NO retry. Never observed firing in practice, but if a future "misses
+                    # the last state" report comes back, enable DEBUG and one of these lines
+                    # should show up right when it happens.
                     if not link.write_header(2, 0, (announced_type, 0, 0, 0)):
-                        if DEBUG_MASTER:
-                            print(f"{tag} DROPPED: ack write failed", file=sys.stderr)
+                        if DEBUG:
+                            print(f"[announce 0x{announced_type:02x} t={time.time() - _t_start:7.3f}] "
+                                  f"DROPPED: ack write failed", file=sys.stderr)
                         continue
                     if not link.write_header(0, 0, (announced_type, 0, 0, 0)):
-                        if DEBUG_MASTER:
-                            print(f"{tag} DROPPED: follow-up poll write failed", file=sys.stderr)
+                        if DEBUG:
+                            print(f"[announce 0x{announced_type:02x} t={time.time() - _t_start:7.3f}] "
+                                  f"DROPPED: follow-up poll write failed", file=sys.stderr)
                         continue
                     ack_reply = link.read_header()
                     if ack_reply is None:
-                        if DEBUG_MASTER:
-                            print(f"{tag} DROPPED: ack header read timed out", file=sys.stderr)
+                        if DEBUG:
+                            print(f"[announce 0x{announced_type:02x} t={time.time() - _t_start:7.3f}] "
+                                  f"DROPPED: ack header read timed out", file=sys.stderr)
                         continue
                     _, ack_payload_len, _ = ack_reply
                     if ack_payload_len == 0:
-                        if DEBUG_MASTER:
-                            print(f"{tag} DROPPED: ack reply had payloadLen=0", file=sys.stderr)
+                        if DEBUG:
+                            print(f"[announce 0x{announced_type:02x} t={time.time() - _t_start:7.3f}] "
+                                  f"DROPPED: ack reply had payloadLen=0", file=sys.stderr)
                         continue
                     ack_raw = link.read_payload(ack_payload_len)
                     if ack_raw is None:
-                        if DEBUG_MASTER:
-                            print(f"{tag} DROPPED: payload read timed out", file=sys.stderr)
+                        if DEBUG:
+                            print(f"[announce 0x{announced_type:02x} t={time.time() - _t_start:7.3f}] "
+                                  f"DROPPED: payload read timed out", file=sys.stderr)
                         continue
                     _, real_type, real_data = link.decode_in_payload(ack_raw)
                     if real_type is not None:
