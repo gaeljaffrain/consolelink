@@ -21,9 +21,8 @@ type=0x0e/0x17 decoding).
 Shows: Fader 1-24 under each of the three known fader modes (INT A, INT B,
 DEVICE INT -- these are the SAME 24 physical faders, re-labeled depending on
 which mode is currently active on the console, per RE notes Part 15), plus
-Master and Bumps. Independent 1/2 are displayed but greyed out: their live
-value's location on the wire hasn't been decoded yet (only their names have,
-via type=0x09), so they're placeholders for now.
+Master and Bumps. Independent 1/2, per the manual, are toggle/bump buttons
+(not faders) -- shown as lights, decoded from type=0x0c (RE notes Part 28).
 """
 import json
 import os
@@ -42,6 +41,12 @@ HOST = "localhost"
 PORT = 8765
 STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# Same raw-capture mechanism as ../smartfade_listen.py (see its module docstring) -- set
+# SMARTFADE_CAPTURE=<path> to log every message (known or not) with full hex + a timestamp,
+# for comparing byte-for-byte against a CLI capture when something behaves differently here
+# than in the terminal tool despite sharing the same protocol code.
+CAPTURE_PATH = os.environ.get("SMARTFADE_CAPTURE", "")
+
 FADER_MODES = ("INT A", "INT B", "DEVICE INT")
 
 state = {
@@ -51,8 +56,13 @@ state = {
     "faders": {mode: [0] * 24 for mode in FADER_MODES},
     "bumps": 0,
     "master": 0,
-    "independent1": None,  # not yet decoded on the wire -- see module docstring
+    "independent1": None,  # None until the first type=0x0c message; then True/False (RE notes Part 28)
     "independent2": None,
+    "solo": None,  # None until the first type=0x16 message; then True/False (RE notes Part 29)
+    "blackout": None,
+    "catching_up": False,  # True while replaying the Part 30 startup catalog request
+    "catchup_total": 0,
+    "catchup_done": 0,
     "last_update": 0.0,
 }
 state_lock = threading.Lock()
@@ -126,41 +136,35 @@ def handle_payload(obj_type, data):
                 print(f"[mode] t={time.time() - _t_start:7.3f}  "
                       f"{state['fader_mode']} -> {mode} (now confirmed)", file=sys.stderr)
             update_state(fader_mode=mode, fader_mode_confirmed=True)
+    elif obj_type == 0x0c:
+        entries = sfl.decode_0x0c(data)
+        update = {}
+        if 1 in entries:
+            update["independent1"] = entries[1][0]
+        if 2 in entries:
+            update["independent2"] = entries[2][0]
+        if DEBUG and update:
+            print(f"[independents] t={time.time() - _t_start:7.3f}  {update}", file=sys.stderr)
+        if update:
+            update_state(**update)
+    elif obj_type == 0x16:
+        flags = sfl.decode_0x16_indicators(data)
+        update = {k: v for k, v in (("solo", flags["solo"]), ("blackout", flags["blackout"]))
+                  if v is not None}
+        if DEBUG and update:
+            print(f"[solo/blackout] t={time.time() - _t_start:7.3f}  {update}", file=sys.stderr)
+        if update:
+            update_state(**update)
 
 
 def poll_forever(stop_event):
     """Connect, poll until something goes wrong or the device disappears, then retry."""
-    did_startup_reset = False
     while not stop_event.is_set():
         dev = usb.core.find(idVendor=sfl.VENDOR_ID, idProduct=sfl.PRODUCT_ID)
         found = sfl.find_bulk_interface(dev) if dev is not None else None
         if found is None:
             update_state(connected=False)
             time.sleep(2.0)
-            continue
-
-        if not did_startup_reset:
-            # The console sends a one-shot type=0x28 announce of every currently non-default
-            # control (fader/master/bumps/etc, whatever isn't at its power-on default) as the
-            # very FIRST reply to the very first idle poll of a USB session -- confirmed against
-            # traces/tracec.pcapng, where that announce (listing [0x0e, 0x16], because Bumps was
-            # non-zero) arrives before any other request, including SmartSoft's own type=0x27
-            # GUI requests (which fetch the static show catalog -- names/groups/cues -- and are
-            # unrelated to this). It's genuinely one-shot per session: once anything has connected
-            # since the console was last plugged in/powered (an earlier run of this script, a
-            # crash, SmartSoft itself), a plain re-claim of the interface will NOT get it again --
-            # only a fresh USB session will. Forcing a reset here (once, on our very first
-            # connection attempt) guarantees we always start our own fresh session instead of
-            # hoping nothing got there first, so faders/master/bumps that are already non-default
-            # show up immediately without the user having to touch a control. See RE notes Part 27.
-            did_startup_reset = True
-            try:
-                dev.reset()
-                print("[webapp] startup reset (to force a fresh USB session and catch the "
-                      "console's one-shot initial-state announce)", file=sys.stderr)
-                time.sleep(2.0)
-            except usb.core.USBError as e:
-                print(f"[webapp] startup reset failed: {e} -- continuing without it", file=sys.stderr)
             continue
 
         intf_num, alt, ep_in, ep_out = found
@@ -180,11 +184,69 @@ def poll_forever(stop_event):
         update_state(connected=True)
         print(f"[webapp] connected: {dev.manufacturer!r} {dev.product!r}")
 
+        capture_f = open(CAPTURE_PATH, "a") if CAPTURE_PATH else None
+        capture_t0 = time.time()
+        if capture_f:
+            print(f"[webapp] raw capture logging to {CAPTURE_PATH}", file=sys.stderr)
+
+        def log_capture(kind, obj_type, data):
+            if capture_f:
+                capture_f.write(f"t={time.time() - capture_t0:8.3f} {kind:8s} "
+                                 f"type=0x{obj_type:02x} len={len(data)} raw={data.hex()}\n")
+                capture_f.flush()
+
+        # Proactively ask for current fader/master/bumps state instead of relying on the
+        # console's own unprompted announce, which on macOS loses a race against the OS's own
+        # automatic USB HID driver probing almost every time (RE notes Part 30 Sec.129) --
+        # confirmed live that the console replies with current data to this ack sequence even
+        # without ever having announced it first (Part 31). This is what actually fixes
+        # "faders don't show up without touching a control," reliably, independent of any
+        # timing race. Sent before anything else, since it doesn't depend on being first.
+        obj_type, data = link.request_type(0x0e)
+        if obj_type is not None:
+            log_capture("requested", obj_type, data)
+            handle_payload(obj_type, data)
+        elif DEBUG:
+            print("[webapp] proactive 0x0e request got no reply", file=sys.stderr)
+
+        # Real SmartSoft's connect sequence (RE notes Part 6 Sec.51 / Part 30): the automatic
+        # startup catch-up (Part 27) only covers fader/master/bumps state -- it does NOT cover
+        # button-toggle state (Independents, Solo, BlackOut -- type=0x0c and type=0x16), which
+        # only gets (re-)announced in response to this explicit request. Sent on every fresh
+        # connection, not just the first, matching what SmartSoft itself does every time it
+        # connects. Replies are picked up by the normal poll loop below like any other announce.
+        #
+        # NOT sent here, before the loop -- that was tried and broke the Part 27 catch-up:
+        # the console's automatic one-shot startup replay fires as the reply to the very FIRST
+        # idle poll of a session, and sending this msgType=1 request first pre-empts it (it's
+        # no longer the first OUT message). Also NOT sent right after just one successful poll
+        # (tried that too, still broke it): real SmartSoft itself waits a good while (1.6-6s
+        # across different captures) of plain idle-polling before ever sending its first
+        # type=0x27 request -- the automatic catch-up apparently isn't necessarily done after
+        # a single round-trip (e.g. if more than one distinct thing needs replaying, it may be
+        # drained one idle-poll-response at a time), and firing the catalog request too eagerly
+        # can cut that off mid-drain. Sent instead after a flat delay of plain idle polling,
+        # comfortably longer than anything seen completing in a trace. RE notes Part 30 Sec.128.
+        gui_requests_sent = False
+        catchup_deadline = None  # set once the catalog request is actually sent
+        connect_time = time.time()
+        GUI_REQUEST_DELAY = 2.0
+
         consecutive_write_fails = 0
         needs_reset = False
         good_headers = 0
         last_heartbeat = time.time()
         while not stop_event.is_set():
+            if not gui_requests_sent and time.time() - connect_time >= GUI_REQUEST_DELAY:
+                gui_requests_sent = True
+                link.send_gui_request(0, 0x09)
+                link.send_gui_request(1, 0x07)
+                update_state(catching_up=True, catchup_total=0, catchup_done=0)
+                catchup_deadline = time.time() + 20.0  # safety net: never leave the UI stuck "loading"
+
+            if catchup_deadline is not None and state["catching_up"] and time.time() > catchup_deadline:
+                update_state(catching_up=False)
+
             if DEBUG and time.time() - last_heartbeat >= 10.0:
                 # Distinguishes "still polling fine, just nothing new to report" from a
                 # genuine stall -- if this line stops appearing, the loop itself is stuck
@@ -227,7 +289,24 @@ def poll_forever(stop_event):
                 continue
 
             if obj_type == 0x28:
-                for announced_type in sfl.decode_announce(data):
+                log_capture("announce", obj_type, data)
+                announced_types = sfl.decode_announce(data)
+                # The startup catalog request (Part 30) gets ONE huge announce (~191 entries in
+                # the traces this was found from); every ordinary live-update announce is a
+                # handful of types at most. That size gap is what tells this apart from a
+                # coincidental small announce arriving mid-catchup, so a live button press
+                # during those few seconds doesn't get miscounted as catalog progress.
+                in_catalog_batch = state["catching_up"] and len(announced_types) > 5
+                if in_catalog_batch:
+                    update_state(catchup_total=len(announced_types), catchup_done=0)
+                for announced_type in announced_types:
+                    if in_catalog_batch:
+                        with state_condition:
+                            state["catchup_done"] += 1
+                            if state["catchup_done"] >= state["catchup_total"]:
+                                state["catching_up"] = False
+                            state["last_update"] = time.time()
+                            state_condition.notify_all()
                     # NOTE: every `continue` below silently drops this announced update with
                     # NO retry. Never observed firing in practice, but if a future "misses
                     # the last state" report comes back, enable DEBUG and one of these lines
@@ -262,11 +341,15 @@ def poll_forever(stop_event):
                         continue
                     _, real_type, real_data = link.decode_in_payload(ack_raw)
                     if real_type is not None:
+                        log_capture("acked", real_type, real_data)
                         handle_payload(real_type, real_data)
             else:
+                log_capture("payload", obj_type, data)
                 handle_payload(obj_type, data)
 
-        update_state(connected=False)
+        update_state(connected=False, catching_up=False)
+        if capture_f:
+            capture_f.close()
         try:
             usb.util.release_interface(dev, intf_num)
         except usb.core.USBError:

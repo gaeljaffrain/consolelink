@@ -71,6 +71,20 @@
   .mode-pill.active-D { color: #ffb84f; }
   .mode-pill.unconfirmed { opacity: 0.55; font-style: italic; }
 
+  .catchup-pill {
+    background: var(--panel);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    border-radius: 999px;
+    padding: 3px 12px;
+    font-weight: 600;
+    animation: catchup-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes catchup-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
   .section {
     background: var(--panel);
     border: 1px solid var(--grid);
@@ -158,6 +172,42 @@
     color: var(--dim);
     font-size: 20px;
   }
+
+  /* Independents are toggle/bump buttons on the console (per the manual), not faders --
+     rendered as a light that turns on, not a bar that fills. */
+  .ind-button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    width: 60px;
+  }
+  .ind-button .light {
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+    background: #0e0f12;
+    border: 1px solid var(--grid);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--dim);
+  }
+  .ind-button.on .light {
+    background: var(--bar-active);
+    border-color: var(--bar-active);
+    color: #0b0c0e;
+    box-shadow: 0 0 10px var(--bar-active);
+  }
+  .ind-button.blackout.on .light {
+    background: var(--bad);
+    border-color: var(--bad);
+    color: #0b0c0e;
+    box-shadow: 0 0 10px var(--bad);
+  }
+  .ind-button .lbl { font-size: 11px; font-weight: 600; color: var(--text); }
   .note {
     font-size: 11px;
     color: var(--dim);
@@ -172,6 +222,7 @@
   <div class="status-row">
     <div class="status"><span class="dot" id="dot"></span><span id="conn-text">connecting…</span></div>
     <div class="mode-pill" id="mode-pill">mode: —</div>
+    <div class="catchup-pill" id="catchup-pill" hidden>loading console state…</div>
     <div id="stale-text" style="color: var(--dim);"></div>
   </div>
 
@@ -188,18 +239,24 @@
         <div class="val">0</div>
         <div class="lbl">BUMPS</div>
       </div>
-      <div class="fader special-fader placeholder">
-        <div class="track"></div>
-        <div class="val">—</div>
+      <div class="ind-button placeholder" id="ind-1">
+        <div class="light">?</div>
         <div class="lbl">IND 1</div>
       </div>
-      <div class="fader special-fader placeholder">
-        <div class="track"></div>
-        <div class="val">—</div>
+      <div class="ind-button placeholder" id="ind-2">
+        <div class="light">?</div>
         <div class="lbl">IND 2</div>
       </div>
+      <div class="ind-button placeholder" id="ind-solo">
+        <div class="light">?</div>
+        <div class="lbl">SOLO</div>
+      </div>
+      <div class="ind-button placeholder blackout" id="ind-blackout">
+        <div class="light">?</div>
+        <div class="lbl">BLACKOUT</div>
+      </div>
     </div>
-    <div class="note">Independents 1/2: name known (type=0x09), live value's wire location not yet decoded — placeholders.</div>
+    <div class="note">Independents, Solo and BlackOut are buttons, not faders. Independents' on/off state decoded from type=0x0c; Solo/BlackOut from two indicator bytes inside type=0x16.</div>
   </div>
 
   <div class="section" id="section-INT A">
@@ -239,13 +296,28 @@ MODES.forEach(buildFaders);
 
 function pct(v) { return Math.round((v / 255) * 100); }
 
+// Console convention: 100% reads as "F" (Full), never "100". No % sign anywhere.
+function pctLabel(v) {
+  const p = pct(v);
+  return p === 100 ? "F" : String(p);
+}
+
 function setFader(el, value) {
   if (!el) return;
   const fill = el.querySelector(".fill");
   const val = el.querySelector(".val");
   fill.style.height = pct(value) + "%";
-  val.textContent = value;
+  val.textContent = pctLabel(value);
   el.classList.toggle("nonzero", value > 0);
+}
+
+// state is null until the first type=0x0c message arrives (still "placeholder" until then),
+// then true/false.
+function setIndicator(el, state) {
+  if (!el) return;
+  el.classList.toggle("placeholder", state === null);
+  el.classList.toggle("on", state === true);
+  el.querySelector(".light").textContent = state === null ? "?" : (state ? "ON" : "");
 }
 
 let lastUpdate = 0;
@@ -261,6 +333,14 @@ function render(state) {
   pill.className = "mode-pill " + modeClass + (state.fader_mode_confirmed ? "" : " unconfirmed");
   pill.textContent = "mode: " + state.fader_mode + (state.fader_mode_confirmed ? "" : " (assumed default)");
 
+  const catchupPill = document.getElementById("catchup-pill");
+  catchupPill.hidden = !state.catching_up;
+  if (state.catching_up) {
+    catchupPill.textContent = state.catchup_total
+      ? `loading console state… (${state.catchup_done}/${state.catchup_total})`
+      : "loading console state…";
+  }
+
   MODES.forEach(mode => {
     const badge = document.querySelector("#section-" + CSS.escape(mode) + " .live-badge");
     const isActive = mode === state.fader_mode;
@@ -273,6 +353,11 @@ function render(state) {
 
   setFader(document.getElementById("fader-master"), state.master);
   setFader(document.getElementById("fader-bumps"), state.bumps);
+
+  setIndicator(document.getElementById("ind-1"), state.independent1);
+  setIndicator(document.getElementById("ind-2"), state.independent2);
+  setIndicator(document.getElementById("ind-solo"), state.solo);
+  setIndicator(document.getElementById("ind-blackout"), state.blackout);
 
   lastUpdate = state.last_update;
 }
