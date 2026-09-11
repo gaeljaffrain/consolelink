@@ -155,6 +155,18 @@ def handle_payload(obj_type, data):
             print(f"[solo/blackout] t={time.time() - _t_start:7.3f}  {update}", file=sys.stderr)
         if update:
             update_state(**update)
+    elif obj_type == 0x0f:
+        # Unlike 0x0e (mode-agnostic -- only ever reports whichever fader mode is currently
+        # active), this holds all three fader-mode banks at once (RE notes Part 33), so the
+        # OTHER two modes' rows (the dimmed ones in the UI) get real data too, not just
+        # whatever they were last set to while they happened to be active.
+        all_modes = sfl.decode_0x0f_all_modes(data)
+        if all_modes is not None:
+            with state_condition:
+                for mode_name, faders in all_modes.items():
+                    state["faders"][mode_name] = faders
+                state["last_update"] = time.time()
+                state_condition.notify_all()
 
 
 def poll_forever(stop_event):
@@ -195,19 +207,48 @@ def poll_forever(stop_event):
                                  f"type=0x{obj_type:02x} len={len(data)} raw={data.hex()}\n")
                 capture_f.flush()
 
+        # Proactively ask for the current fader MODE before asking for fader/master/bumps
+        # state -- type=0x0e is mode-agnostic on the wire (it just reports whatever's on the
+        # physical faders right now, for whichever mode happens to be active), and until a
+        # real type=0x17 is seen, state["fader_mode"] defaults to "INT A" (RE notes Part 15).
+        # Asking for 0x0e first, before knowing the true mode, silently mislabeled its data
+        # as INT A whenever the console was actually in INT B or DEVICE INT at connect (found
+        # live: "only intensity A are read at startup" -- Part 32). request_type() works for
+        # 0x17 exactly like it does for 0x0e, returning the true current mode on demand (not
+        # just on a change, unlike the passive announce it was documented as in Part 15) --
+        # confirmed live with debug_ask_0x17.py against a console sitting in DEVICE INT mode.
+        mode_type, mode_data = link.request_type(0x17)
+        if mode_type is not None:
+            log_capture("requested", mode_type, mode_data)
+            handle_payload(mode_type, mode_data)
+        elif DEBUG:
+            print("[webapp] proactive 0x17 request got no reply", file=sys.stderr)
+
         # Proactively ask for current fader/master/bumps state instead of relying on the
         # console's own unprompted announce, which on macOS loses a race against the OS's own
         # automatic USB HID driver probing almost every time (RE notes Part 30 Sec.129) --
         # confirmed live that the console replies with current data to this ack sequence even
         # without ever having announced it first (Part 31). This is what actually fixes
         # "faders don't show up without touching a control," reliably, independent of any
-        # timing race. Sent before anything else, since it doesn't depend on being first.
+        # timing race. Sent after the mode request above, so it gets bucketed correctly.
         obj_type, data = link.request_type(0x0e)
         if obj_type is not None:
             log_capture("requested", obj_type, data)
             handle_payload(obj_type, data)
         elif DEBUG:
             print("[webapp] proactive 0x0e request got no reply", file=sys.stderr)
+
+        # type=0x0f holds all three fader-mode banks at once (Part 33) -- this is what
+        # actually gets INT B/DEVICE INT populated on connect too, not just whichever mode
+        # happens to be active (found live: "only intensity A are read at startup" persisted
+        # even after Part 32's mode-ordering fix, because that fix only affects 0x0e, which is
+        # mode-agnostic by nature and structurally can't report a mode that isn't active).
+        all_type, all_data = link.request_type(0x0f)
+        if all_type is not None:
+            log_capture("requested", all_type, all_data)
+            handle_payload(all_type, all_data)
+        elif DEBUG:
+            print("[webapp] proactive 0x0f request got no reply", file=sys.stderr)
 
         # Real SmartSoft's connect sequence (RE notes Part 6 Sec.51 / Part 30): the automatic
         # startup catch-up (Part 27) only covers fader/master/bumps state -- it does NOT cover
