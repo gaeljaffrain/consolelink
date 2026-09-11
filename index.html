@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SmartFade ML — Live Faders</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #17181c;
+    --panel: #1f2126;
+    --grid: #2a2d34;
+    --text: #d9dbe1;
+    --dim: #7a7e8a;
+    --accent: #4fb0ff;
+    --bar: #3d8bd6;
+    --bar-active: #ff9d3d;
+    --master: #ff5c5c;
+    --bumps: #5cff8f;
+    --ok: #5cff8f;
+    --bad: #ff5c5c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    padding: 20px 24px 40px;
+  }
+  h1 {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0 0 4px;
+    letter-spacing: 0.02em;
+  }
+  .subtitle {
+    color: var(--dim);
+    font-size: 12px;
+    margin-bottom: 18px;
+  }
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    margin-bottom: 22px;
+    font-size: 13px;
+    flex-wrap: wrap;
+  }
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--bad);
+    box-shadow: 0 0 6px var(--bad);
+  }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .mode-pill {
+    background: var(--panel);
+    border: 1px solid var(--grid);
+    border-radius: 999px;
+    padding: 3px 12px;
+    font-weight: 600;
+  }
+  .mode-pill.active-A { color: #4fb0ff; }
+  .mode-pill.active-B { color: #b06bff; }
+  .mode-pill.active-D { color: #ffb84f; }
+  .mode-pill.unconfirmed { opacity: 0.55; font-style: italic; }
+
+  .section {
+    background: var(--panel);
+    border: 1px solid var(--grid);
+    border-radius: 10px;
+    padding: 14px 16px 18px;
+    margin-bottom: 16px;
+  }
+  .section-title {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--dim);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-title .live-badge {
+    font-size: 10px;
+    background: var(--bar);
+    color: #0b0c0e;
+    border-radius: 4px;
+    padding: 1px 6px;
+    letter-spacing: 0;
+    text-transform: none;
+    font-weight: 700;
+  }
+  .section.dim .section-title { opacity: 0.6; }
+  .fader-row {
+    display: flex;
+    gap: 6px;
+    align-items: flex-end;
+  }
+  .fader {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 26px;
+    flex: 1 1 0;
+    max-width: 34px;
+  }
+  .fader .track {
+    width: 100%;
+    height: 130px;
+    background: #0e0f12;
+    border: 1px solid var(--grid);
+    border-radius: 4px;
+    display: flex;
+    align-items: flex-end;
+    overflow: hidden;
+    position: relative;
+  }
+  .fader .fill {
+    width: 100%;
+    background: linear-gradient(180deg, var(--bar), #1f5c96);
+    height: 0%;
+    transition: height 80ms linear;
+  }
+  .fader.nonzero .fill { background: linear-gradient(180deg, var(--bar-active), #b05a10); }
+  .fader .val {
+    font-size: 10px;
+    color: var(--dim);
+    margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+  .fader .lbl {
+    font-size: 9px;
+    color: var(--dim);
+    margin-top: 2px;
+  }
+
+  .special-row {
+    display: flex;
+    gap: 24px;
+  }
+  .special-fader .track { height: 160px; }
+  .special-fader { width: 44px; }
+  .special-fader .fill.master { background: linear-gradient(180deg, var(--master), #7a1f1f); }
+  .special-fader .fill.bumps { background: linear-gradient(180deg, var(--bumps), #1f7a44); }
+  .special-fader .lbl { font-size: 11px; font-weight: 600; color: var(--text); }
+
+  .placeholder .track { display: flex; align-items: center; justify-content: center; }
+  .placeholder .track::after {
+    content: "?";
+    color: var(--dim);
+    font-size: 20px;
+  }
+  .note {
+    font-size: 11px;
+    color: var(--dim);
+    margin-top: 10px;
+  }
+</style>
+</head>
+<body>
+  <h1>SmartFade ML — Live Faders</h1>
+  <div class="subtitle">Local read-only mirror over USB. See SmartFade_SmartSoft_reverse_engineering_notes.md for the wire protocol.</div>
+
+  <div class="status-row">
+    <div class="status"><span class="dot" id="dot"></span><span id="conn-text">connecting…</span></div>
+    <div class="mode-pill" id="mode-pill">mode: —</div>
+    <div id="stale-text" style="color: var(--dim);"></div>
+  </div>
+
+  <div class="section" id="section-master-bumps">
+    <div class="section-title">Master &amp; Bumps</div>
+    <div class="special-row">
+      <div class="fader special-fader" id="fader-master">
+        <div class="track"><div class="fill master" style="height:0%"></div></div>
+        <div class="val">0</div>
+        <div class="lbl">MASTER</div>
+      </div>
+      <div class="fader special-fader" id="fader-bumps">
+        <div class="track"><div class="fill bumps" style="height:0%"></div></div>
+        <div class="val">0</div>
+        <div class="lbl">BUMPS</div>
+      </div>
+      <div class="fader special-fader placeholder">
+        <div class="track"></div>
+        <div class="val">—</div>
+        <div class="lbl">IND 1</div>
+      </div>
+      <div class="fader special-fader placeholder">
+        <div class="track"></div>
+        <div class="val">—</div>
+        <div class="lbl">IND 2</div>
+      </div>
+    </div>
+    <div class="note">Independents 1/2: name known (type=0x09), live value's wire location not yet decoded — placeholders.</div>
+  </div>
+
+  <div class="section" id="section-INT A">
+    <div class="section-title">Intensity A <span class="live-badge" style="display:none">LIVE</span></div>
+    <div class="fader-row" id="faders-INT A"></div>
+  </div>
+
+  <div class="section" id="section-INT B">
+    <div class="section-title">Intensity B <span class="live-badge" style="display:none">LIVE</span></div>
+    <div class="fader-row" id="faders-INT B"></div>
+  </div>
+
+  <div class="section" id="section-DEVICE INT">
+    <div class="section-title">Intensity Device <span class="live-badge" style="display:none">LIVE</span></div>
+    <div class="fader-row" id="faders-DEVICE INT"></div>
+  </div>
+
+  <div class="note">Only the currently-active fader mode on the console updates live (the console only reports whichever mode is selected). The other two rows hold the last value seen while that mode was active, and may be stale.</div>
+
+<script>
+const MODES = ["INT A", "INT B", "DEVICE INT"];
+
+function buildFaders(mode) {
+  const row = document.getElementById("faders-" + mode);
+  for (let i = 1; i <= 24; i++) {
+    const f = document.createElement("div");
+    f.className = "fader";
+    f.id = "fader-" + mode + "-" + i;
+    f.innerHTML = `
+      <div class="track"><div class="fill" style="height:0%"></div></div>
+      <div class="val">0</div>
+      <div class="lbl">${i}</div>`;
+    row.appendChild(f);
+  }
+}
+MODES.forEach(buildFaders);
+
+function pct(v) { return Math.round((v / 255) * 100); }
+
+function setFader(el, value) {
+  if (!el) return;
+  const fill = el.querySelector(".fill");
+  const val = el.querySelector(".val");
+  fill.style.height = pct(value) + "%";
+  val.textContent = value;
+  el.classList.toggle("nonzero", value > 0);
+}
+
+let lastUpdate = 0;
+
+function render(state) {
+  const dot = document.getElementById("dot");
+  const connText = document.getElementById("conn-text");
+  dot.classList.toggle("ok", state.connected);
+  connText.textContent = state.connected ? "connected" : "waiting for console…";
+
+  const pill = document.getElementById("mode-pill");
+  const modeClass = state.fader_mode === "INT A" ? "active-A" : state.fader_mode === "INT B" ? "active-B" : "active-D";
+  pill.className = "mode-pill " + modeClass + (state.fader_mode_confirmed ? "" : " unconfirmed");
+  pill.textContent = "mode: " + state.fader_mode + (state.fader_mode_confirmed ? "" : " (assumed default)");
+
+  MODES.forEach(mode => {
+    const badge = document.querySelector("#section-" + CSS.escape(mode) + " .live-badge");
+    const isActive = mode === state.fader_mode;
+    badge.style.display = isActive ? "inline-block" : "none";
+    document.getElementById("section-" + mode).classList.toggle("dim", !isActive);
+    for (let i = 1; i <= 24; i++) {
+      setFader(document.getElementById("fader-" + mode + "-" + i), state.faders[mode][i - 1]);
+    }
+  });
+
+  setFader(document.getElementById("fader-master"), state.master);
+  setFader(document.getElementById("fader-bumps"), state.bumps);
+
+  lastUpdate = state.last_update;
+}
+
+// Pushed via Server-Sent Events rather than polled: every state change the server
+// decodes is sent immediately, so no fader update is silently skipped between polls.
+function connect() {
+  const es = new EventSource("/api/events");
+  es.onmessage = (ev) => render(JSON.parse(ev.data));
+  es.onerror = () => {
+    document.getElementById("dot").classList.remove("ok");
+    document.getElementById("conn-text").textContent = "server unreachable, retrying…";
+    // EventSource auto-retries the connection itself; nothing else to do here.
+  };
+}
+connect();
+
+setInterval(() => {
+  const staleEl = document.getElementById("stale-text");
+  if (!lastUpdate) return;
+  const age = Date.now() / 1000 - lastUpdate;
+  staleEl.textContent = age > 3 ? `last update ${age.toFixed(0)}s ago` : "";
+}, 1000);
+</script>
+</body>
+</html>

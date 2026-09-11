@@ -1,0 +1,338 @@
+#!/usr/bin/env python3
+"""
+Minimal local web app showing live SmartFade ML fader values.
+
+Run:
+    python3 webapp/server.py
+Then open http://localhost:8765 in a browser.
+
+Stdlib only (plus pyusb, already required by ../smartfade_listen.py). No
+build step, no npm, no framework -- a background thread polls the console
+over USB and a plain http.server serves a static page over Server-Sent
+Events (GET /api/events, text/event-stream) so every update is pushed the
+moment it's decoded, rather than the page polling and silently skipping
+whatever changed between polls.
+
+Reuses the USB protocol implementation from ../smartfade_listen.py (Parts
+6-15 of the RE notes) rather than re-deriving it -- see that file's module
+docstring for the wire-protocol details (idle poll, announce/ack handshake,
+type=0x0e/0x17 decoding).
+
+Shows: Fader 1-24 under each of the three known fader modes (INT A, INT B,
+DEVICE INT -- these are the SAME 24 physical faders, re-labeled depending on
+which mode is currently active on the console, per RE notes Part 15), plus
+Master and Bumps. Independent 1/2 are displayed but greyed out: their live
+value's location on the wire hasn't been decoded yet (only their names have,
+via type=0x09), so they're placeholders for now.
+"""
+import json
+import os
+import sys
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import smartfade_listen as sfl  # noqa: E402
+
+import usb.core  # noqa: E402
+import usb.util  # noqa: E402
+
+HOST = "localhost"
+PORT = 8765
+STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
+
+FADER_MODES = ("INT A", "INT B", "DEVICE INT")
+
+state = {
+    "connected": False,
+    "fader_mode": "INT A",
+    "fader_mode_confirmed": False,  # False = assumed default, never actually seen a type=0x17
+    "faders": {mode: [0] * 24 for mode in FADER_MODES},
+    "bumps": 0,
+    "master": 0,
+    "independent1": None,  # not yet decoded on the wire -- see module docstring
+    "independent2": None,
+    "last_update": 0.0,
+}
+state_lock = threading.Lock()
+state_condition = threading.Condition(state_lock)  # notified on every state change, for SSE
+
+
+def update_state(**kwargs):
+    with state_condition:
+        state.update(kwargs)
+        state["last_update"] = time.time()
+        state_condition.notify_all()
+
+
+def decode_0x0e_full(data):
+    """Full snapshot decode of type=0x0e: ALL 24 fader values (zero included) + bumps + master.
+
+    sfl.decode_0x0e (in ../smartfade_listen.py) deliberately omits zero entries -- that's the
+    right behaviour for its terminal printer (only print what changed). But type=0x0e is a full
+    snapshot every time, not a delta: a fader that's been moved all the way down to 0 legitimately
+    has nothing to report for that slot. A stateful client that only applies present keys (as an
+    earlier version of this file did) never resets that slot back to 0 -- the bar gets stuck at
+    its last nonzero value. This full decode always returns all 26 values so the app can just
+    replace the whole snapshot on every message, matching what the message actually represents.
+    """
+    if len(data) < 99:
+        return None
+    faders = [data[1 + 4 * n] for n in range(24)]
+    return faders, data[97], data[98]
+
+
+DEBUG_MASTER = True  # temporary: log every USB-level Master change with a timestamp, to
+                      # tell apart "values are genuinely missing on the wire/in our poll
+                      # loop" from "values arrive fine but the browser doesn't render them"
+_last_logged_master = None
+_t_start = time.time()
+
+
+def handle_payload(obj_type, data):
+    global _last_logged_master
+    if obj_type == 0x0e:
+        full = decode_0x0e_full(data)
+        if full is not None:
+            faders, bumps, master = full
+            if DEBUG_MASTER and master != _last_logged_master:
+                print(f"[master] t={time.time() - _t_start:7.3f}  {_last_logged_master} -> {master}",
+                      file=sys.stderr)
+                _last_logged_master = master
+            with state_condition:
+                state["faders"][state["fader_mode"]] = faders
+                state["bumps"] = bumps
+                state["master"] = master
+                state["last_update"] = time.time()
+                state_condition.notify_all()
+    elif obj_type == 0x17:
+        mode = sfl.decode_0x17(data)
+        if mode in FADER_MODES:
+            update_state(fader_mode=mode, fader_mode_confirmed=True)
+
+
+def poll_forever(stop_event):
+    """Connect, poll until something goes wrong or the device disappears, then retry."""
+    while not stop_event.is_set():
+        dev = usb.core.find(idVendor=sfl.VENDOR_ID, idProduct=sfl.PRODUCT_ID)
+        found = sfl.find_bulk_interface(dev) if dev is not None else None
+        if found is None:
+            update_state(connected=False)
+            time.sleep(2.0)
+            continue
+        intf_num, alt, ep_in, ep_out = found
+
+        try:
+            if dev.is_kernel_driver_active(intf_num):
+                dev.detach_kernel_driver(intf_num)
+        except (usb.core.USBError, NotImplementedError):
+            pass
+        try:
+            dev.set_configuration()
+        except usb.core.USBError:
+            pass
+        usb.util.claim_interface(dev, intf_num)
+
+        link = sfl.SmartFadeLink(dev, ep_in, ep_out)
+        update_state(connected=True)
+        print(f"[webapp] connected: {dev.manufacturer!r} {dev.product!r}")
+
+        consecutive_write_fails = 0
+        needs_reset = False
+        good_headers = 0
+        last_heartbeat = time.time()
+        while not stop_event.is_set():
+            if DEBUG_MASTER and time.time() - last_heartbeat >= 3.0:
+                # Distinguishes "still polling fine, just nothing new to report" from a
+                # genuine stall -- if this line stops appearing, the loop itself is stuck
+                # somewhere above (not in the announce/ack path, which has its own DROPPED
+                # logging), most likely blocked in a read/write call that isn't timing out.
+                print(f"[poll] t={time.time() - _t_start:7.3f}  alive, "
+                      f"good_headers={good_headers} write_fails={link.write_errors} "
+                      f"read_timeouts={link.read_timeouts}", file=sys.stderr)
+                last_heartbeat = time.time()
+
+            if not link.write_header(0, 0, (0, 0, 0, 0)):
+                consecutive_write_fails += 1
+                if consecutive_write_fails > 20:
+                    # Repeated write failures right on the OUT pipe (as opposed to a device
+                    # that's simply gone) usually means a previous session left the bulk pipe
+                    # stalled -- e.g. a process that held the interface got killed without
+                    # running its cleanup (SIGTERM skips `finally` blocks; a background thread
+                    # being torn down at interpreter exit skips them too). A plain re-claim
+                    # doesn't clear that; a USB port reset does, without needing a physical
+                    # unplug/replug.
+                    print("[webapp] too many write failures, resetting device", file=sys.stderr)
+                    needs_reset = True
+                    break
+                time.sleep(0.05)
+                continue
+            consecutive_write_fails = 0
+
+            reply = link.read_header()
+            if reply is None:
+                continue
+            good_headers += 1
+            _, payload_len, _ = reply
+            if payload_len == 0:
+                continue
+            raw = link.read_payload(payload_len)
+            if raw is None:
+                continue
+            _, obj_type, data = link.decode_in_payload(raw)
+            if obj_type is None:
+                continue
+
+            if obj_type == 0x28:
+                for announced_type in sfl.decode_announce(data):
+                    tag = f"[announce type=0x{announced_type:02x} t={time.time() - _t_start:7.3f}]"
+                    # NOTE: every `continue` below silently drops this announced update with
+                    # NO retry -- if this is where the reported "misses the last state" is
+                    # coming from, one of these DEBUG_MASTER lines should show up right when
+                    # it happens. Not fixing this yet; logging first to confirm before changing
+                    # behavior, per the user's request to start by understanding it.
+                    if not link.write_header(2, 0, (announced_type, 0, 0, 0)):
+                        if DEBUG_MASTER:
+                            print(f"{tag} DROPPED: ack write failed", file=sys.stderr)
+                        continue
+                    if not link.write_header(0, 0, (announced_type, 0, 0, 0)):
+                        if DEBUG_MASTER:
+                            print(f"{tag} DROPPED: follow-up poll write failed", file=sys.stderr)
+                        continue
+                    ack_reply = link.read_header()
+                    if ack_reply is None:
+                        if DEBUG_MASTER:
+                            print(f"{tag} DROPPED: ack header read timed out", file=sys.stderr)
+                        continue
+                    _, ack_payload_len, _ = ack_reply
+                    if ack_payload_len == 0:
+                        if DEBUG_MASTER:
+                            print(f"{tag} DROPPED: ack reply had payloadLen=0", file=sys.stderr)
+                        continue
+                    ack_raw = link.read_payload(ack_payload_len)
+                    if ack_raw is None:
+                        if DEBUG_MASTER:
+                            print(f"{tag} DROPPED: payload read timed out", file=sys.stderr)
+                        continue
+                    _, real_type, real_data = link.decode_in_payload(ack_raw)
+                    if real_type is not None:
+                        handle_payload(real_type, real_data)
+            else:
+                handle_payload(obj_type, data)
+
+        update_state(connected=False)
+        try:
+            usb.util.release_interface(dev, intf_num)
+        except usb.core.USBError:
+            pass
+        if needs_reset:
+            try:
+                dev.reset()
+                print("[webapp] device reset; waiting for re-enumeration", file=sys.stderr)
+                time.sleep(2.0)  # give the device time to fully come back before retrying
+            except usb.core.USBError as e:
+                print(f"[webapp] reset failed: {e} -- may need a physical unplug/replug",
+                      file=sys.stderr)
+        usb.util.dispose_resources(dev)
+        time.sleep(1.0)
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        pass  # keep stdout to the USB connect/disconnect prints above
+
+    def do_GET(self):
+        if self.path in ("/", "/index.html"):
+            self._serve_file("index.html", "text/html")
+        elif self.path == "/api/state":
+            # One-shot snapshot, used only for the initial page load before the
+            # SSE stream below takes over. Not used for the live updates.
+            with state_lock:
+                body = json.dumps(state).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == "/api/events":
+            self._serve_events()
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def _serve_events(self):
+        """Server-Sent Events: push the current state every time it changes (or at
+        least once a second as a heartbeat), so the client never has to poll and
+        never silently skips an update that arrived between polls."""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+        try:
+            while True:
+                with state_condition:
+                    state_condition.wait(timeout=1.0)
+                    payload = json.dumps(state)
+                self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass  # client navigated away/closed the tab
+
+    def _serve_file(self, name, content_type):
+        try:
+            with open(os.path.join(STATIC_DIR, name), "rb") as f:
+                body = f.read()
+        except FileNotFoundError:
+            self.send_response(404)
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+class QuietThreadingHTTPServer(ThreadingHTTPServer):
+    """`handle_error` is a SERVER hook (called from ThreadingMixIn.process_request_thread),
+    not a request-handler one -- it does NOT belong on Handler above; overriding it there
+    silently never fires. socketserver's default here prints a full traceback for ANY
+    exception while reading/writing a connection, including a browser tab closing or
+    reloading mid-request, which resets the TCP connection and is completely routine,
+    especially for a long-lived SSE stream. Not a crash (only that one connection's
+    thread ends; the server and every other connection keep running) -- just noisy."""
+
+    def handle_error(self, request, client_address):
+        exc_type = sys.exc_info()[0]
+        if exc_type in (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
+            return
+        super().handle_error(request, client_address)
+
+
+def main():
+    stop_event = threading.Event()
+    # Not a daemon thread: daemon threads are hard-killed at interpreter exit with no
+    # chance to run their `finally` cleanup, which is exactly what would leave the USB
+    # interface claimed/pipes stalled for the next run (see the `needs_reset` comment
+    # above). Joining it below ensures usb.util.release_interface() actually runs on a
+    # normal Ctrl+C shutdown.
+    poll_thread = threading.Thread(target=poll_forever, args=(stop_event,))
+    poll_thread.start()
+
+    server = QuietThreadingHTTPServer((HOST, PORT), Handler)
+    print(f"Serving on http://{HOST}:{PORT} -- Ctrl+C to stop.")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nStopping.")
+    finally:
+        stop_event.set()
+        server.shutdown()
+        poll_thread.join(timeout=5.0)
+
+
+if __name__ == "__main__":
+    main()
