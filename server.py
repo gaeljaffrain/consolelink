@@ -60,9 +60,6 @@ state = {
     "independent2": None,
     "solo": None,  # None until the first type=0x16 message; then True/False (RE notes Part 29)
     "blackout": None,
-    "catching_up": False,  # True while replaying the Part 30 startup catalog request
-    "catchup_total": 0,
-    "catchup_done": 0,
     "last_update": 0.0,
 }
 state_lock = threading.Lock()
@@ -250,44 +247,27 @@ def poll_forever(stop_event):
         elif DEBUG:
             print("[webapp] proactive 0x0f request got no reply", file=sys.stderr)
 
-        # Real SmartSoft's connect sequence (RE notes Part 6 Sec.51 / Part 30): the automatic
-        # startup catch-up (Part 27) only covers fader/master/bumps state -- it does NOT cover
-        # button-toggle state (Independents, Solo, BlackOut -- type=0x0c and type=0x16), which
-        # only gets (re-)announced in response to this explicit request. Sent on every fresh
-        # connection, not just the first, matching what SmartSoft itself does every time it
-        # connects. Replies are picked up by the normal poll loop below like any other announce.
-        #
-        # NOT sent here, before the loop -- that was tried and broke the Part 27 catch-up:
-        # the console's automatic one-shot startup replay fires as the reply to the very FIRST
-        # idle poll of a session, and sending this msgType=1 request first pre-empts it (it's
-        # no longer the first OUT message). Also NOT sent right after just one successful poll
-        # (tried that too, still broke it): real SmartSoft itself waits a good while (1.6-6s
-        # across different captures) of plain idle-polling before ever sending its first
-        # type=0x27 request -- the automatic catch-up apparently isn't necessarily done after
-        # a single round-trip (e.g. if more than one distinct thing needs replaying, it may be
-        # drained one idle-poll-response at a time), and firing the catalog request too eagerly
-        # can cut that off mid-drain. Sent instead after a flat delay of plain idle polling,
-        # comfortably longer than anything seen completing in a trace. RE notes Part 30 Sec.128.
-        gui_requests_sent = False
-        catchup_deadline = None  # set once the catalog request is actually sent
-        connect_time = time.time()
-        GUI_REQUEST_DELAY = 2.0
+        # Independents and Solo/BlackOut, on demand -- same trick as 0x17/0x0e/0x0f above.
+        # Superseded Part 30's approach entirely: that sent SmartSoft's full 191-entry show
+        # catalog request (type=0x27 subtype=0x07) and waited ~10-15s for it to crawl through,
+        # because at the time it seemed to be the only way to get these two. It turned out
+        # request_type() -- proven generic by that point for 0x17/0x0e/0x0f -- just works for
+        # these too (confirmed live, RE notes Part 34), and nothing this app renders actually
+        # needs anything else out of that catalog (names/groups/cues/curves -- all real, just
+        # unused here). Startup is now a handful of fast direct requests instead of a slow crawl.
+        for type_byte, label in ((0x0c, "0x0c"), (0x16, "0x16")):
+            obj_type, data = link.request_type(type_byte)
+            if obj_type is not None:
+                log_capture("requested", obj_type, data)
+                handle_payload(obj_type, data)
+            elif DEBUG:
+                print(f"[webapp] proactive {label} request got no reply", file=sys.stderr)
 
         consecutive_write_fails = 0
         needs_reset = False
         good_headers = 0
         last_heartbeat = time.time()
         while not stop_event.is_set():
-            if not gui_requests_sent and time.time() - connect_time >= GUI_REQUEST_DELAY:
-                gui_requests_sent = True
-                link.send_gui_request(0, 0x09)
-                link.send_gui_request(1, 0x07)
-                update_state(catching_up=True, catchup_total=0, catchup_done=0)
-                catchup_deadline = time.time() + 20.0  # safety net: never leave the UI stuck "loading"
-
-            if catchup_deadline is not None and state["catching_up"] and time.time() > catchup_deadline:
-                update_state(catching_up=False)
-
             if DEBUG and time.time() - last_heartbeat >= 10.0:
                 # Distinguishes "still polling fine, just nothing new to report" from a
                 # genuine stall -- if this line stops appearing, the loop itself is stuck
@@ -332,22 +312,7 @@ def poll_forever(stop_event):
             if obj_type == 0x28:
                 log_capture("announce", obj_type, data)
                 announced_types = sfl.decode_announce(data)
-                # The startup catalog request (Part 30) gets ONE huge announce (~191 entries in
-                # the traces this was found from); every ordinary live-update announce is a
-                # handful of types at most. That size gap is what tells this apart from a
-                # coincidental small announce arriving mid-catchup, so a live button press
-                # during those few seconds doesn't get miscounted as catalog progress.
-                in_catalog_batch = state["catching_up"] and len(announced_types) > 5
-                if in_catalog_batch:
-                    update_state(catchup_total=len(announced_types), catchup_done=0)
                 for announced_type in announced_types:
-                    if in_catalog_batch:
-                        with state_condition:
-                            state["catchup_done"] += 1
-                            if state["catchup_done"] >= state["catchup_total"]:
-                                state["catching_up"] = False
-                            state["last_update"] = time.time()
-                            state_condition.notify_all()
                     # NOTE: every `continue` below silently drops this announced update with
                     # NO retry. Never observed firing in practice, but if a future "misses
                     # the last state" report comes back, enable DEBUG and one of these lines
@@ -388,7 +353,7 @@ def poll_forever(stop_event):
                 log_capture("payload", obj_type, data)
                 handle_payload(obj_type, data)
 
-        update_state(connected=False, catching_up=False)
+        update_state(connected=False)
         if capture_f:
             capture_f.close()
         try:

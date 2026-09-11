@@ -71,20 +71,6 @@
   .mode-pill.active-D { color: #ffb84f; }
   .mode-pill.unconfirmed { opacity: 0.55; font-style: italic; }
 
-  .catchup-pill {
-    background: var(--panel);
-    border: 1px solid var(--accent);
-    color: var(--accent);
-    border-radius: 999px;
-    padding: 3px 12px;
-    font-weight: 600;
-    animation: catchup-pulse 1.2s ease-in-out infinite;
-  }
-  @keyframes catchup-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-  }
-
   .section {
     background: var(--panel);
     border: 1px solid var(--grid);
@@ -222,7 +208,6 @@
   <div class="status-row">
     <div class="status"><span class="dot" id="dot"></span><span id="conn-text">connecting…</span></div>
     <div class="mode-pill" id="mode-pill">mode: —</div>
-    <div class="catchup-pill" id="catchup-pill" hidden>loading console state…</div>
     <div id="stale-text" style="color: var(--dim);"></div>
   </div>
 
@@ -332,14 +317,6 @@ function render(state) {
   const modeClass = state.fader_mode === "INT A" ? "active-A" : state.fader_mode === "INT B" ? "active-B" : "active-D";
   pill.className = "mode-pill " + modeClass + (state.fader_mode_confirmed ? "" : " unconfirmed");
   pill.textContent = "mode: " + state.fader_mode + (state.fader_mode_confirmed ? "" : " (assumed default)");
-
-  const catchupPill = document.getElementById("catchup-pill");
-  catchupPill.hidden = !state.catching_up;
-  if (state.catching_up) {
-    catchupPill.textContent = state.catchup_total
-      ? `loading console state… (${state.catchup_done}/${state.catchup_total})`
-      : "loading console state…";
-  }
 
   MODES.forEach(mode => {
     const badge = document.querySelector("#section-" + CSS.escape(mode) + " .live-badge");
