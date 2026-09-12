@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """
-Minimal local web app showing live SmartFade ML fader values.
+Minimal local web app showing live console fader values.
 
 Run:
-    python3 webapp/server.py
+    python3 consolelink/server.py
 Then open http://localhost:8765 in a browser.
 
-Stdlib only (plus pyusb, already required by ../smartfade_listen.py). No
-build step, no npm, no framework -- a background thread polls the console
-over USB and a plain http.server serves a static page over Server-Sent
-Events (GET /api/events, text/event-stream) so every update is pushed the
-moment it's decoded, rather than the page polling and silently skipping
-whatever changed between polls.
+Stdlib only (plus pyusb, already required by protocol.py). No build step, no
+npm, no framework -- a background thread polls the console over USB and a
+plain http.server serves a static page over Server-Sent Events (GET
+/api/events, text/event-stream) so every update is pushed the moment it's
+decoded, rather than the page polling and silently skipping whatever changed
+between polls.
 
-Reuses the USB protocol implementation from ../smartfade_listen.py (Parts
-6-15 of the RE notes) rather than re-deriving it -- see that file's module
-docstring for the wire-protocol details (idle poll, announce/ack handshake,
+Reuses the USB protocol implementation from protocol.py (Parts 6-15 of the
+RE notes) rather than re-deriving it -- see that module's docstring for the
+wire-protocol details (idle poll, announce/ack handshake, request_type(),
 type=0x0e/0x17 decoding).
 
 Shows: Fader 1-24 under each of the three known fader modes (INT A, INT B,
@@ -31,11 +31,9 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-import smartfade_listen as sfl  # noqa: E402
-
-import usb.core  # noqa: E402
-import usb.util  # noqa: E402
+import protocol as sfl
+import usb.core
+import usb.util
 
 HOST = "localhost"
 PORT = 8765
@@ -189,7 +187,7 @@ def poll_forever(stop_event):
             pass
         usb.util.claim_interface(dev, intf_num)
 
-        link = sfl.SmartFadeLink(dev, ep_in, ep_out)
+        link = sfl.ConsoleLink(dev, ep_in, ep_out)
         update_state(connected=True)
         print(f"[webapp] connected: {dev.manufacturer!r} {dev.product!r}")
 
