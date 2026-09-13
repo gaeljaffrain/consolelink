@@ -190,6 +190,56 @@ def decode_0x18(data):
     return list(data[1:1 + count])
 
 
+def decode_0x09_labels(data):
+    """Decode the per-item name table for INT A / INT B / DEVICE INT / Independents.
+
+    The console sends a series of 39-byte records, each structured as:
+      page: index 0, then tag 0x03 0x06, then a UTF-16LE 2-line label.
+    The page number maps to the 74 positional entries of the console's item model:
+      0-23   IntA1-24
+      24-47  IntB1-24
+      48-71  Device1-24
+      72-73  Independent1-2
+    Returns a dict keyed by item family, with values of {index: label}.
+    """
+    if len(data) < 39:
+        return {"INT A": {}, "INT B": {}, "DEVICE INT": {}, "Independent": {}}
+
+    result = {"INT A": {}, "INT B": {}, "DEVICE INT": {}, "Independent": {}}
+    if len(data) % 39:
+        data = data[:len(data) - (len(data) % 39)]
+
+    for offset in range(0, len(data), 39):
+        record = data[offset:offset + 39]
+        if len(record) < 28:
+            continue
+        page = record[0]
+        if page < 0 or page > 73:
+            continue
+
+        line1 = record[4:16].decode("utf-16-le", errors="ignore").rstrip("\x00\ufffd")
+        line2 = record[16:28].decode("utf-16-le", errors="ignore").rstrip("\x00\ufffd")
+        label = " ".join(part for part in (line1, line2) if part).strip()
+        if not label:
+            continue
+
+        if 0 <= page <= 23:
+            family = "INT A"
+            index = page + 1
+        elif 24 <= page <= 47:
+            family = "INT B"
+            index = page - 24 + 1
+        elif 48 <= page <= 71:
+            family = "DEVICE INT"
+            index = page - 48 + 1
+        else:
+            family = "Independent"
+            index = page - 72 + 1
+
+        result[family][index] = label
+    return result
+
+
 def decode_0x0f_all_modes(data):
     """type=0x0f (75 bytes): unlike type=0x0e (mode-agnostic -- only ever reports whichever
     fader mode is CURRENTLY active, Part 15), this holds all three fader-mode banks

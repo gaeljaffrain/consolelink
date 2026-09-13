@@ -52,6 +52,8 @@ state = {
     "fader_mode": "INT A",
     "fader_mode_confirmed": False,  # False = assumed default, never actually seen a type=0x17
     "faders": {mode: [0] * 24 for mode in FADER_MODES},
+    "labels": {mode: {} for mode in FADER_MODES},
+    "independent_labels": {},
     "bumps": 0,
     "master": 0,
     "independent1": None,  # None until the first type=0x0c message; then True/False (RE notes Part 28)
@@ -131,6 +133,15 @@ def handle_payload(obj_type, data):
                 print(f"[mode] t={time.time() - _t_start:7.3f}  "
                       f"{state['fader_mode']} -> {mode} (now confirmed)", file=sys.stderr)
             update_state(fader_mode=mode, fader_mode_confirmed=True)
+    elif obj_type == 0x09:
+        labels = sfl.decode_0x09_labels(data)
+        if labels:
+            with state_condition:
+                for mode in FADER_MODES:
+                    state["labels"][mode].update(labels.get(mode, {}))
+                state["independent_labels"].update(labels.get("Independent", {}))
+                state["last_update"] = time.time()
+                state_condition.notify_all()
     elif obj_type == 0x0c:
         entries = sfl.decode_0x0c(data)
         update = {}
@@ -138,10 +149,21 @@ def handle_payload(obj_type, data):
             update["independent1"] = entries[1][0]
         if 2 in entries:
             update["independent2"] = entries[2][0]
+        if 1 in entries and entries[1][1]:
+            update.setdefault("independent_labels", {})
+            update["independent_labels"][1] = entries[1][1]
+        if 2 in entries and entries[2][1]:
+            update.setdefault("independent_labels", {})
+            update["independent_labels"][2] = entries[2][1]
         if DEBUG and update:
             print(f"[independents] t={time.time() - _t_start:7.3f}  {update}", file=sys.stderr)
         if update:
-            update_state(**update)
+            update_state(**{k: v for k, v in update.items() if k not in {"independent_labels"}})
+            if "independent_labels" in update:
+                with state_condition:
+                    state["independent_labels"].update(update["independent_labels"])
+                    state["last_update"] = time.time()
+                    state_condition.notify_all()
     elif obj_type == 0x16:
         flags = sfl.decode_0x16_indicators(data)
         update = {k: v for k, v in (("solo", flags["solo"]), ("blackout", flags["blackout"]))
@@ -253,7 +275,7 @@ def poll_forever(stop_event):
         # these too (confirmed live, RE notes Part 34), and nothing this app renders actually
         # needs anything else out of that catalog (names/groups/cues/curves -- all real, just
         # unused here). Startup is now a handful of fast direct requests instead of a slow crawl.
-        for type_byte, label in ((0x0c, "0x0c"), (0x16, "0x16")):
+        for type_byte, label in ((0x09, "0x09"), (0x0c, "0x0c"), (0x16, "0x16")):
             obj_type, data = link.request_type(type_byte)
             if obj_type is not None:
                 log_capture("requested", obj_type, data)
