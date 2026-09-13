@@ -134,6 +134,27 @@ def decode_announce(data):
     return types
 
 
+def decode_announce_entries(data):
+    """Decode announce entries as ``(type, state)`` pairs, retaining each entry's selector.
+
+    Catalog announcements use the four bytes after the type as an item selector; for type
+    0x09 this is the name-table page number. The older decode_announce() API intentionally
+    returns only types for callers that do not need selectors.
+    """
+    if len(data) < 2:
+        return []
+    count = data[1]
+    entries = []
+    for i in range(count):
+        off = 2 + 5 * i
+        if off + 5 <= len(data):
+            # The catalog entry selector is encoded big-endian inside the announce payload,
+            # even though the surrounding USB protocol headers use little-endian fields.
+            selector = struct.unpack_from(">HH", data, off + 1)
+            entries.append((data[off], selector))
+    return entries
+
+
 def decode_0x0e(data):
     """type=0x0e (99 bytes): Fader 1-24 (duplicated pair), Bumps=data[97], Master=data[98]."""
     if len(data) < 99:
@@ -217,8 +238,8 @@ def decode_0x09_labels(data):
         if page < 0 or page > 73:
             continue
 
-        line1 = record[4:16].decode("utf-16-le", errors="ignore").rstrip("\x00\ufffd")
-        line2 = record[16:28].decode("utf-16-le", errors="ignore").rstrip("\x00\ufffd")
+        line1 = record[4:16].decode("utf-16-le", errors="ignore").replace("\uffff", "").rstrip("\x00\ufffd").strip()
+        line2 = record[16:28].decode("utf-16-le", errors="ignore").replace("\uffff", "").rstrip("\x00\ufffd").strip()
         label = " ".join(part for part in (line1, line2) if part).strip()
         if not label:
             continue

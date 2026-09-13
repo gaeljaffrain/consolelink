@@ -136,6 +136,11 @@ def handle_payload(obj_type, data):
     elif obj_type == 0x09:
         labels = sfl.decode_0x09_labels(data)
         if labels:
+            received = [(family, index, name)
+                        for family, entries in labels.items()
+                        for index, name in entries.items()]
+            for family, index, name in received:
+                print(f"[label] {family} {index}: {name!r}", file=sys.stderr)
             with state_condition:
                 for mode in FADER_MODES:
                     state["labels"][mode].update(labels.get(mode, {}))
@@ -267,15 +272,8 @@ def poll_forever(stop_event):
         elif DEBUG:
             print("[webapp] proactive 0x0f request got no reply", file=sys.stderr)
 
-        # Independents and Solo/BlackOut, on demand -- same trick as 0x17/0x0e/0x0f above.
-        # Superseded Part 30's approach entirely: that sent SmartSoft's full 191-entry show
-        # catalog request (type=0x27 subtype=0x07) and waited ~10-15s for it to crawl through,
-        # because at the time it seemed to be the only way to get these two. It turned out
-        # request_type() -- proven generic by that point for 0x17/0x0e/0x0f -- just works for
-        # these too (confirmed live, RE notes Part 34), and nothing this app renders actually
-        # needs anything else out of that catalog (names/groups/cues/curves -- all real, just
-        # unused here). Startup is now a handful of fast direct requests instead of a slow crawl.
-        for type_byte, label in ((0x09, "0x09"), (0x0c, "0x0c"), (0x16, "0x16")):
+        # Independents and Solo/BlackOut are fetched directly.
+        for type_byte, label in ((0x0c, "0x0c"), (0x16, "0x16")):
             obj_type, data = link.request_type(type_byte)
             if obj_type is not None:
                 log_capture("requested", obj_type, data)
@@ -287,6 +285,8 @@ def poll_forever(stop_event):
         needs_reset = False
         good_headers = 0
         last_heartbeat = time.time()
+        plain_poll_started = time.time()
+        gui_requests_sent = False
         while not stop_event.is_set():
             if DEBUG and time.time() - last_heartbeat >= 10.0:
                 # Distinguishes "still polling fine, just nothing new to report" from a
@@ -319,6 +319,11 @@ def poll_forever(stop_event):
             if reply is None:
                 continue
             good_headers += 1
+            if not gui_requests_sent and time.time() - plain_poll_started >= 2.0:
+                # Request the full catalog after initial idle polling so the console announces
+                # all 74 type=0x09 name pages without suppressing the startup catch-up response.
+                link.send_gui_request(1, 0x07)
+                gui_requests_sent = True
             _, payload_len, _ = reply
             if payload_len == 0:
                 continue
@@ -331,18 +336,19 @@ def poll_forever(stop_event):
 
             if obj_type == 0x28:
                 log_capture("announce", obj_type, data)
-                announced_types = sfl.decode_announce(data)
-                for announced_type in announced_types:
+                announced_entries = sfl.decode_announce_entries(data)
+                for announced_type, selector in announced_entries:
                     # NOTE: every `continue` below silently drops this announced update with
                     # NO retry. Never observed firing in practice, but if a future "misses
                     # the last state" report comes back, enable DEBUG and one of these lines
                     # should show up right when it happens.
-                    if not link.write_header(2, 0, (announced_type, 0, 0, 0)):
+                    ack_state = (announced_type, selector[0], selector[1], 0)
+                    if not link.write_header(2, 0, ack_state):
                         if DEBUG:
                             print(f"[announce 0x{announced_type:02x} t={time.time() - _t_start:7.3f}] "
                                   f"DROPPED: ack write failed", file=sys.stderr)
                         continue
-                    if not link.write_header(0, 0, (announced_type, 0, 0, 0)):
+                    if not link.write_header(0, 0, ack_state):
                         if DEBUG:
                             print(f"[announce 0x{announced_type:02x} t={time.time() - _t_start:7.3f}] "
                                   f"DROPPED: follow-up poll write failed", file=sys.stderr)
