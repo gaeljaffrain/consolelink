@@ -323,7 +323,7 @@ def poll_forever(stop_event):
 
             if obj_type == 0x28:
                 log_capture("announce", obj_type, data)
-                announced_entries = sfl.decode_announce_entries(data)
+                announced_entries = sfl.decode_announce(data)
                 for announced_type, selector in announced_entries:
                     # NOTE: every `continue` below silently drops this announced update with
                     # NO retry. Never observed firing in practice, but if a future "misses

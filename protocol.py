@@ -109,7 +109,7 @@ def pack_header(msg_type, payload_len, state=(0, 0, 0, 0)):
     return struct.pack("<HHHHHH", msg_type, payload_len, *state)
 
 
-def decode_announce_entries(data):
+def decode_announce(data):
     """type=0x28 payload: [0x00][count][type,0,0,0,0]*count -- returns list of announced types and selectors.
 
     Catalog announcements use the four bytes after the type as an item selector; for type
