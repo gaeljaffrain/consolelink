@@ -109,37 +109,11 @@ def pack_header(msg_type, payload_len, state=(0, 0, 0, 0)):
     return struct.pack("<HHHHHH", msg_type, payload_len, *state)
 
 
-def decode_announce(data):
-    """type=0x28 payload: [0x00][count][type,0,0,0,0]*count -- returns list of announced types.
-
-    Each entry is 5 bytes (1 type byte + 4 padding), NOT 4 as originally documented/assumed.
-    That off-by-one-stride bug was invisible for single-type announces (Master's own announces
-    are always solo, and offset 2+4*0 == 2+5*0 either way) but silently corrupted every
-    multi-type announce -- which is specifically what fires for a regular fader move (grouped
-    with siblings 0x0d/0x0f): e.g. raw bytes `00 03 0d 00 00 00 00 0e 00 00 00 00 0f 00 00 00 00`
-    has real type bytes at indices 2, 7, 12 (stride 5), but the old stride-4 formula read index
-    6 (0x00, garbage) instead of 7, silently truncating the announced-types list to
-    [0x0d, 0x00, 0x00] -- meaning the real fader-data type (0x0e) was never even requested via
-    the ack handshake. Found live, 2026-09, debugging why the web app's fader display never
-    updated while Master (whose announces are always single-type) worked perfectly.
-    """
-    if len(data) < 2:
-        return []
-    count = data[1]
-    types = []
-    for i in range(count):
-        off = 2 + 5 * i
-        if off < len(data):
-            types.append(data[off])
-    return types
-
-
 def decode_announce_entries(data):
-    """Decode announce entries as ``(type, state)`` pairs, retaining each entry's selector.
+    """type=0x28 payload: [0x00][count][type,0,0,0,0]*count -- returns list of announced types and selectors.
 
     Catalog announcements use the four bytes after the type as an item selector; for type
-    0x09 this is the name-table page number. The older decode_announce() API intentionally
-    returns only types for callers that do not need selectors.
+    0x09 this is the name-table page number.
     """
     if len(data) < 2:
         return []
@@ -153,7 +127,6 @@ def decode_announce_entries(data):
             selector = struct.unpack_from(">HH", data, off + 1)
             entries.append((data[off], selector))
     return entries
-
 
 def decode_0x0e(data):
     """type=0x0e (99 bytes): Fader 1-24 (duplicated pair), Bumps=data[97], Master=data[98]."""
@@ -170,6 +143,21 @@ def decode_0x0e(data):
         values["Master"] = data[98]
     return values
 
+def decode_0x0e_full(data):
+    """Full snapshot decode of type=0x0e: ALL 24 fader values (zero included) + bumps + master.
+
+    sfl.decode_0x0e (in ../smartfade_listen.py) deliberately omits zero entries -- that's the
+    right behaviour for its terminal printer (only print what changed). But type=0x0e is a full
+    snapshot every time, not a delta: a fader that's been moved all the way down to 0 legitimately
+    has nothing to report for that slot. A stateful client that only applies present keys (as an
+    earlier version of this file did) never resets that slot back to 0 -- the bar gets stuck at
+    its last nonzero value. This full decode always returns all 26 values so the app can just
+    replace the whole snapshot on every message, matching what the message actually represents.
+    """
+    if len(data) < 99:
+        return None
+    faders = [data[1 + 4 * n] for n in range(24)]
+    return faders, data[97], data[98]
 
 def decode_0x11(data):
     """type=0x11 (209 bytes): CrossfaderLive=data[195], CrossfaderNext=data[196]."""

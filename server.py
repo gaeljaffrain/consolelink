@@ -65,30 +65,11 @@ state = {
 state_lock = threading.Lock()
 state_condition = threading.Condition(state_lock)  # notified on every state change, for SSE
 
-
 def update_state(**kwargs):
     with state_condition:
         state.update(kwargs)
         state["last_update"] = time.time()
         state_condition.notify_all()
-
-
-def decode_0x0e_full(data):
-    """Full snapshot decode of type=0x0e: ALL 24 fader values (zero included) + bumps + master.
-
-    sfl.decode_0x0e (in ../smartfade_listen.py) deliberately omits zero entries -- that's the
-    right behaviour for its terminal printer (only print what changed). But type=0x0e is a full
-    snapshot every time, not a delta: a fader that's been moved all the way down to 0 legitimately
-    has nothing to report for that slot. A stateful client that only applies present keys (as an
-    earlier version of this file did) never resets that slot back to 0 -- the bar gets stuck at
-    its last nonzero value. This full decode always returns all 26 values so the app can just
-    replace the whole snapshot on every message, matching what the message actually represents.
-    """
-    if len(data) < 99:
-        return None
-    faders = [data[1 + 4 * n] for n in range(24)]
-    return faders, data[97], data[98]
-
 
 # Off by default -- run with SMARTFADE_DEBUG=1 to get per-control change logging (which
 # control changed, when, to what) plus a liveness heartbeat and visibility into any
@@ -105,7 +86,7 @@ def handle_payload(obj_type, data):
     global _last_logged_master
     # Faders (only for active fader mode), bumps and master snapshot
     if obj_type == 0x0e:
-        full = decode_0x0e_full(data)
+        full = sfl.decode_0x0e_full(data)
         if full is not None:
             faders, bumps, master = full
             if DEBUG and master != _last_logged_master:

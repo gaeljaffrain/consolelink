@@ -203,7 +203,7 @@ def main():
             if obj_type == 0x28:
                 log_capture("announce", obj_type, data)
                 # Announce: ack each announced type in turn, then read its real data.
-                for announced_type in sfl.decode_announce(data):
+                for (announced_type, selector) in sfl.decode_announce_entries(data):
                     if not link.write_header(2, 0, (announced_type, 0, 0, 0)):
                         continue
                     if not link.write_header(0, 0, (announced_type, 0, 0, 0)):
