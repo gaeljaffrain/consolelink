@@ -101,9 +101,9 @@ _last_logged_master = None
 _last_logged_faders = {mode: [0] * 24 for mode in FADER_MODES}
 _t_start = time.time()
 
-
 def handle_payload(obj_type, data):
     global _last_logged_master
+    # Faders (only for active fader mode), bumps and master snapshot
     if obj_type == 0x0e:
         full = decode_0x0e_full(data)
         if full is not None:
@@ -126,6 +126,7 @@ def handle_payload(obj_type, data):
                 state["master"] = master
                 state["last_update"] = time.time()
                 state_condition.notify_all()
+    # Fader mode
     elif obj_type == 0x17:
         mode = sfl.decode_0x17(data)
         if mode in FADER_MODES:
@@ -133,6 +134,7 @@ def handle_payload(obj_type, data):
                 print(f"[mode] t={time.time() - _t_start:7.3f}  "
                       f"{state['fader_mode']} -> {mode} (now confirmed)", file=sys.stderr)
             update_state(fader_mode=mode, fader_mode_confirmed=True)
+    # Labels pages
     elif obj_type == 0x09:
         labels = sfl.decode_0x09_labels(data)
         if labels:
@@ -147,6 +149,7 @@ def handle_payload(obj_type, data):
                 state["independent_labels"].update(labels.get("Independent", {}))
                 state["last_update"] = time.time()
                 state_condition.notify_all()
+    # Independents (toggle/bump buttons, not faders)
     elif obj_type == 0x0c:
         entries = sfl.decode_0x0c(data)
         update = {}
@@ -169,6 +172,7 @@ def handle_payload(obj_type, data):
                     state["independent_labels"].update(update["independent_labels"])
                     state["last_update"] = time.time()
                     state_condition.notify_all()
+    # Solo/Blackout indicators
     elif obj_type == 0x16:
         flags = sfl.decode_0x16_indicators(data)
         update = {k: v for k, v in (("solo", flags["solo"]), ("blackout", flags["blackout"]))
@@ -177,6 +181,8 @@ def handle_payload(obj_type, data):
             print(f"[solo/blackout] t={time.time() - _t_start:7.3f}  {update}", file=sys.stderr)
         if update:
             update_state(**update)
+
+    # Full faders snapshot (3x24) for all three fader modes at once, not just the currently active one.
     elif obj_type == 0x0f:
         # Unlike 0x0e (mode-agnostic -- only ever reports whichever fader mode is currently
         # active), this holds all three fader-mode banks at once (RE notes Part 33), so the
