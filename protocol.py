@@ -163,8 +163,6 @@ def decode_0x0e_full(data):
     """
     if len(data) < 99:
         return None
-    print(f"[fader 0: {data[1:5].hex()}]", file=sys.stderr)
-    print(f"[fader 1: {data[5:9].hex()}]", file=sys.stderr)
     faders = [data[1 + 4 * n] for n in range(24)]
     return faders, data[97], data[98]
 
