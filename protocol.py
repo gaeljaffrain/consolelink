@@ -45,7 +45,11 @@ Decodes:
     they don't touch type=0x0e/0x11 at all, only this LCD text and a
     correlated-but-undecoded type=0x16.
   - type=0x16 (637 bytes, mostly undecoded): bytes 517-528 are two adjacent
-    6-byte Solo/BlackOut indicator blocks (Part 29).
+    6-byte Solo/BlackOut indicator blocks (Part 29). Per-fader 6-byte blocks
+    starting at byte 2 (`2+6*(N-1)` / `5+6*(N-1)` for fader N, confirmed for
+    N=1/2/24, Part 37-38) are each fader's Bump-LED "catch" indicator --
+    fixed at (0x46, 0x0a) while that fader's Bump LED is blinking (unlatched
+    after a fader-mode switch), else tracks its live output 1:1.
   - type=0x17 (7 bytes): the fader-mode selector (INT A/INT B/DEVICE INT,
     Part 15) -- only fires unprompted on a mode CHANGE, but request_type()
     gets the true current mode on demand regardless (Part 32).
@@ -82,8 +86,11 @@ IO_TIMEOUT_MS = 200
 # 0x16: ~637-642 byte full-table dump, correlated with wheel moves and occasional full
 #       refreshes; likely a live RGB-ish color-preview value (Part 11 Sec.71), mostly not
 #       decoded -- type=0x15 already gives an exact, plain-text readout of whatever a wheel is
-#       adjusting. EXCEPTION: bytes 517-528 are decoded (decode_0x16_indicators, Part 29) --
-#       two adjacent 6-byte Solo/BlackOut indicator blocks.
+#       adjusting. EXCEPTIONS: bytes 517-528 are decoded (decode_0x16_indicators, Part 29) --
+#       two adjacent 6-byte Solo/BlackOut indicator blocks (Solo also has a confirmed distinct
+#       "blinking" pattern, Part 38, not yet wired into decode_0x16_indicators). Each fader's
+#       2-byte Bump-LED blink/catch indicator (decode_0x16_bump_catch, Part 37-38) lives at
+#       `2+6*(N-1)` / `5+6*(N-1)`.
 KNOWN_UNDECODED_TYPES = {0x00, 0x0d, 0x10}
 
 
@@ -156,6 +163,8 @@ def decode_0x0e_full(data):
     """
     if len(data) < 99:
         return None
+    print(f"[fader 0: {data[1:5].hex()}]", file=sys.stderr)
+    print(f"[fader 1: {data[5:9].hex()}]", file=sys.stderr)
     faders = [data[1 + 4 * n] for n in range(24)]
     return faders, data[97], data[98]
 
@@ -328,6 +337,46 @@ def decode_0x16_indicators(data):
         "solo": read(517, 523, b"\xff" * 6),
         "blackout": read(523, 529, bytes.fromhex("0000ff0000ff")),
     }
+
+
+_0X16_BLINK_PAIR = (0x46, 0x0A)
+
+
+def decode_0x16_bump_catch(data, fader):
+    """type=0x16, per-fader 6-byte block (RE notes Part 37-38): the Bump LED for a fader
+    that's "unlatched" after a fader-mode switch -- i.e. its saved logical value doesn't match
+    the physical fader position, so moving it has no effect on output until the physical
+    position catches up. `fader` is 1-indexed (1-24, same convention as decode_0x0e's
+    `Fader{N}`); its block is `data[2+6*(fader-1)]` / `data[5+6*(fader-1)]`. Formula confirmed
+    live across three separate faders at three different offsets (fader 1 -> 2/5, fader 2 ->
+    8/11, fader 24 -> 140/143 -- traces/trace_fader0_wiggle_then_catch.pcapng and
+    trace_blink_bump2_24_solo.pcapng):
+
+      - While unlatched (console shows the Bump LED blinking, visibly dim rather than a hard
+        on/off flash -- confirmed by eye against real hardware): both bytes sit at a fixed
+        `(0x46, 0x0a)` pair, regardless of how long the wiggling goes on, how far the physical
+        fader actually moves, or *which* fader it is (identical constant for faders 1, 2 and
+        24 alike). Read as the blink's two displayed brightness levels (matches the observed
+        dim pulsing far better than a literal on/off pair would), sent once as a pair when
+        blinking starts -- the alternation itself is handled locally, not re-sent per flash.
+      - The instant the fader is physically caught, both bytes start tracking the fader's own
+        live combined output 1:1 (matches the concurrent type=0x0e reading step for step
+        across a full 246->0 ramp down to 0, each type=0x16 arriving a few ms after the
+        type=0x0e it mirrors).
+      - At rest (fader untouched, value unchanged), both bytes equal the fader's steady value
+        (e.g. `(0xff, 0xff)` while resting at 255/full) -- indistinguishable on the wire from
+        "just caught," since both just mean "LED solid, showing this value."
+
+    Returns None if data is too short, else {"blinking": True} while unlatched, or
+    {"blinking": False, "value": <0-255>} once latched/at rest.
+    """
+    off = 2 + 6 * (fader - 1)
+    if len(data) < off + 4:
+        return None
+    a, b = data[off], data[off + 3]
+    if (a, b) == _0X16_BLINK_PAIR:
+        return {"blinking": True}
+    return {"blinking": False, "value": a if a == b else None}
 
 
 class ConsoleLink:
