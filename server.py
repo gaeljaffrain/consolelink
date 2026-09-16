@@ -392,6 +392,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path in ("/", "/index.html"):
             self._serve_file("index.html", "text/html")
+        elif self.path == "/style.css":
+            self._serve_file("style.css", "text/css")
         elif self.path == "/api/state":
             # One-shot snapshot, used only for the initial page load before the
             # SSE stream below takes over. Not used for the live updates.
