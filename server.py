@@ -4,7 +4,9 @@ Minimal local web app showing live console fader values.
 
 Run:
     python3 consolelink/server.py
-Then open http://localhost:8765 in a browser.
+Then open http://localhost:8765 in a browser, or http://<this Mac's LAN IP>:8765 from
+another device on the same network (e.g. `ipconfig getifaddr en0` for the IP; macOS will
+prompt to allow incoming connections for python3 the first time a LAN client connects).
 
 Stdlib only (plus pyusb, already required by protocol.py). No build step, no
 npm, no framework -- a background thread polls the console over USB and a
@@ -35,7 +37,7 @@ import protocol as sfl
 import usb.core
 import usb.util
 
-HOST = "localhost"
+HOST = "0.0.0.0"  # listen on all interfaces, not just loopback, so LAN devices can connect
 PORT = 8765
 STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
 
