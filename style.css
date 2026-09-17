@@ -14,7 +14,6 @@
   /* SmartFadeML style colors */
   --master: #5647f4;
   --bumps: #808080;
-  --ind: #ffb84f;
   --greenfader: #d3f8b5;
   --whitebutton: #ffffff;
 }
@@ -286,11 +285,11 @@ h1 {
 }
 .special-fader .fill.master { background: var(--master); }
 .special-fader .fill.bumps { background: var(--bumps); }
-.special-fader .fill.ind { background: var(--ind); }
+.special-fader .fill.ind { background: var(--greenfader); }
 #fader-master .val { color: var(--master); }
 #fader-bumps .val { color: var(--bumps); }
 #fader-ind1 .val,
-#fader-ind2 .val { color: var(--ind); }
+#fader-ind2 .val { color: var(--greenfader); }
 
 .placeholder .track { display: flex; align-items: center; justify-content: center; }
 .placeholder .track::after {
@@ -368,6 +367,13 @@ h1 {
   border-color: var(--master);
   color: var(--dim);
   box-shadow: 0 0 10px var(--master);
+}
+#ind-1.on .light,
+#ind-2.on .light {
+  background: var(--greenfader);
+  border-color: var(--greenfader);
+  color: var(--dim);
+  box-shadow: 0 0 10px var(--greenfader);
 }
 .ind-button .lbl {
   font-size: 11px;

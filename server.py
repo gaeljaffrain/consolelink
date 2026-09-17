@@ -58,8 +58,10 @@ state = {
     "independent_labels": {},
     "bumps": 0,
     "master": 0,
-    "independent1": None,  # None until the first type=0x0c message; then a raw 0-255 value (RE notes Part 28)
+    "independent1": None,  # None until the first type=0x0c message; then a raw 0-255 value (RE notes Part 28/39)
     "independent2": None,
+    "independent1_clicked": None,  # None until the first type=0x0c message; then True/False -- a
+    "independent2_clicked": None,  # separate bit from the value above (RE notes Part 39)
     "solo": None,  # None until the first type=0x16 message; then True/False (RE notes Part 29)
     "blackout": None,
     "last_update": 0.0,
@@ -137,15 +139,17 @@ def handle_payload(obj_type, data):
         entries = sfl.decode_0x0c(data)
         update = {}
         if 1 in entries:
-            update["independent1"] = entries[1][0]
+            update["independent1_clicked"] = entries[1][0]
+            update["independent1"] = entries[1][1]
         if 2 in entries:
-            update["independent2"] = entries[2][0]
-        if 1 in entries and entries[1][1]:
+            update["independent2_clicked"] = entries[2][0]
+            update["independent2"] = entries[2][1]
+        if 1 in entries and entries[1][2]:
             update.setdefault("independent_labels", {})
-            update["independent_labels"][1] = entries[1][1]
-        if 2 in entries and entries[2][1]:
+            update["independent_labels"][1] = entries[1][2]
+        if 2 in entries and entries[2][2]:
             update.setdefault("independent_labels", {})
-            update["independent_labels"][2] = entries[2][1]
+            update["independent_labels"][2] = entries[2][2]
         if DEBUG and update:
             print(f"[independents] t={time.time() - _t_start:7.3f}  {update}", file=sys.stderr)
         if update:

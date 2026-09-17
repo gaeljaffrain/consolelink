@@ -137,14 +137,17 @@ function setIndicator(el, state, keepLabel) {
 }
 
 // IND 1/2 are a fader (live 0-255 value, like Master/Bumps) plus a click button showing the
-// Independent's patched name -- "on" here means "currently nonzero", not a separate click bit
-// (RE notes Part 28: the value used to look boolean because it was only ever tested fully on
-// or off; a real capture showed it's a full 0-255 raw value like any other control).
-function setIndependent(faderEl, btnEl, value, label) {
-  setFader(faderEl, value === null ? 0 : value);
-  const known = value !== null;
+// Independent's patched name. `value` and `clicked` are two genuinely separate bits on the
+// wire (RE notes Part 39/40, confirmed against a real capture): `value` is a stored/preset
+// level that stays constant regardless of click state -- it does NOT drop to 0 on its own --
+// while `clicked` is whether that level is currently reaching output. So the bar shows
+// `clicked ? value : 0`, the same "stored level only reaches output while engaged" pattern
+// already confirmed for Bump buttons (Part 16), not the raw value unconditionally.
+function setIndependent(faderEl, btnEl, value, clicked, label) {
+  setFader(faderEl, (value === null || clicked !== true) ? 0 : value);
+  const known = clicked !== null;
   btnEl.classList.toggle("placeholder", !known);
-  btnEl.classList.toggle("on", known && value > 0);
+  btnEl.classList.toggle("on", known && clicked === true);
   btnEl.querySelector(".light").textContent = known ? (label || "") : "?";
 }
 
@@ -179,9 +182,9 @@ function render(state) {
   setFader(document.getElementById("fader-bumps"), state.bumps);
 
   setIndependent(document.getElementById("fader-ind1"), document.getElementById("ind-1"),
-    state.independent1, state.independent_labels?.[1]);
+    state.independent1, state.independent1_clicked, state.independent_labels?.[1]);
   setIndependent(document.getElementById("fader-ind2"), document.getElementById("ind-2"),
-    state.independent2, state.independent_labels?.[2]);
+    state.independent2, state.independent2_clicked, state.independent_labels?.[2]);
   setIndicator(document.getElementById("ind-solo"), state.solo, true);
   setIndicator(document.getElementById("ind-blackout"), state.blackout, true);
 
