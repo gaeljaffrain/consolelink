@@ -8,11 +8,13 @@
   --accent: #4fb0ff;
   --bar: #3d8bd6;
   --bar-active: #ff9d3d;
-  --master: #ff5c5c;
-  --bumps: #5cff8f;
   --ok: #5cff8f;
   --bad: #ff5c5c;
-  --greenfader: #d3f8b5
+
+  /* SmartFadeML style colors */
+  --master: #5647f4;
+  --bumps: #808080;
+  --greenfader: #d3f8b5;
 }
 * { box-sizing: border-box; }
 body {
@@ -109,7 +111,8 @@ h1 {
   gap: 3px;
   margin-bottom: 0;
 }
-.section.section-row .fader-row {
+.section.section-row .fader-row,
+.section.section-row .special-row {
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -176,9 +179,10 @@ h1 {
   height: 1.2em;
 }
 
-/* INT A/B/DEV rows only (not Master/Bumps' .special-fader): a compact layout with the fader
-   number as a header above a narrow bar, and a large value readout next to it. */
-.fader-row .fader .number {
+/* INT A/B/DEV faders and Master/Bumps (.special-fader) share this compact layout: the
+   number/label as a header above a narrow bar, and a large value readout next to it. */
+.fader-row .fader .number,
+.special-fader .number {
   font-size: 15px;
   font-weight: 700;
   color: var(--text);
@@ -188,7 +192,8 @@ h1 {
   line-height: 1.5;
   margin-bottom: 4px;
 }
-.fader-row .fader .value-row {
+.fader-row .fader .value-row,
+.special-fader .value-row {
   display: flex;
   align-items: flex-end;
   justify-content: flex-start;
@@ -196,11 +201,13 @@ h1 {
   width: 100%;
   height: 60px;
 }
-.fader-row .fader .track {
+.fader-row .fader .track,
+.special-fader .track {
   width: 16px;
   flex: 0 0 16px;
 }
-.fader-row .fader .val {
+.fader-row .fader .val,
+.special-fader .val {
   font-size: 22px;
   font-weight: 700;
   color: var(--greenfader);
@@ -208,6 +215,13 @@ h1 {
   margin-top: 0;
   line-height: 1;
   align-self: center;
+}
+
+/* MASTER/BUMPS is longer than a 1-2 digit fader number, so it gets a smaller badge font
+   that wraps instead of the numeric badges' nowrap+ellipsis truncation. */
+.special-fader .number {
+  font-size: 10px;
+  white-space: normal;
 }
 .fader .name,
 .ind-button .name {
@@ -228,14 +242,14 @@ h1 {
   gap: 24px;
 }
 .special-fader + .special-fader { margin-left: -18px; }
-.special-fader .track { height: 110px; }
 .special-fader {
   flex: 0 0 calc((100% - 138px) / 24);
   width: calc((100% - 138px) / 24);
 }
-.special-fader .fill.master { background: linear-gradient(180deg, var(--master), #7a1f1f); }
-.special-fader .fill.bumps { background: linear-gradient(180deg, var(--bumps), #1f7a44); }
-.special-fader .lbl { font-size: 11px; font-weight: 600; color: var(--text); }
+.special-fader .fill.master { background: var(--master); }
+.special-fader .fill.bumps { background: var(--bumps); }
+#fader-master .val { color: var(--master); }
+#fader-bumps .val { color: var(--bumps); }
 
 .placeholder .track { display: flex; align-items: center; justify-content: center; }
 .placeholder .track::after {
