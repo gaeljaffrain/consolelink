@@ -15,7 +15,11 @@
   --master: #5647f4;
   --bumps: #808080;
   --greenfader: #d3f8b5;
+  --whitebutton: #ffffff;
 }
+/* Below this window width, each 24-fader row wraps into two rows of 12 (see the
+   @media rule right after .fader-row's definition, below, for the actual breakpoint --
+   it has to live there so it wins the cascade over .fader-row's unconditional rule). */
 * { box-sizing: border-box; }
 body {
   margin: 0;
@@ -23,6 +27,12 @@ body {
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   padding: 20px 24px 40px;
+}
+/* Below 900px, stop reflowing/shrinking further (values were getting clipped past that
+   point, see the 12-per-row .fader-row comment above) -- hold the page at a fixed 900px and
+   let the browser's own horizontal scrollbar handle anything narrower. */
+body {
+  min-width: 900px;
 }
 h1 {
   font-size: 18px;
@@ -117,9 +127,24 @@ h1 {
   min-width: 0;
 }
 .fader-row {
-  display: flex;
+  display: grid;
+  /* minmax(0, 1fr), not plain 1fr: a bare 1fr track won't shrink below its content's natural
+     min-content width, which defeats the narrow-width wrap below -- minmax(0, 1fr) is what
+     actually lets columns compress instead of overflowing the row. */
+  grid-template-columns: repeat(24, minmax(0, 1fr));
   gap: 6px;
-  align-items: flex-end;
+  align-items: end;
+  /* Safety net: if even 12-per-row (below) is still too tight for the fixed-size badge/bar/
+     value content to shrink into, scroll horizontally instead of silently overflowing the
+     page. */
+  overflow-x: auto;
+}
+/* Tune this px value to change when the 24-fader rows wrap into two rows of 12 (narrow Mac
+   windows / phone screens). Must stay below .fader-row above so it wins the cascade. */
+@media (max-width: 1600px) {
+  .fader-row {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
 }
 .fader {
   display: flex;
@@ -132,6 +157,9 @@ h1 {
   border: 1px solid var(--grid);
   border-radius: 4px;
   padding: 4px;
+  /* At narrow widths (12-per-row) a column can compress below its badge/value text's natural
+     size -- clip rather than let it bleed into neighboring columns. */
+  overflow: hidden;
 }
 .fader .track {
   width: 100%;
@@ -246,6 +274,15 @@ h1 {
   flex: 0 0 calc((100% - 138px) / 24);
   width: calc((100% - 138px) / 24);
 }
+/* Same breakpoint as .fader-row's 24->12 wrap above: once a fader-row column is one of 12
+   (11 gaps) instead of 24 (23 gaps), Master/Bumps need the matching 12-column width formula
+   to stay the same size as Fader 1/2 -- otherwise they'd still be sized for the 24-wide row. */
+@media (max-width: 1600px) {
+  .special-fader {
+    flex: 0 0 calc((100% - 66px) / 12);
+    width: calc((100% - 66px) / 12);
+  }
+}
 .special-fader .fill.master { background: var(--master); }
 .special-fader .fill.bumps { background: var(--bumps); }
 #fader-master .val { color: var(--master); }
@@ -291,6 +328,42 @@ h1 {
   border-color: var(--bad);
   color: #0b0c0e;
   box-shadow: 0 0 10px var(--bad);
+}
+/* SOLO/BLACKOUT live inside Bumps'/Master's .name slot instead of standing alone: compact,
+   full-width, with the label inside the light box itself rather than below it. */
+.ind-button.ind-mini {
+  width: 100%;
+  height: 100%;
+  gap: 0;
+}
+.ind-button.ind-mini .light {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border-radius: 4px;
+  font-size: 11px;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  padding: 1px;
+  white-space: normal;
+  /* Inactive: same background as the .number badge above the bar. */
+  background: var(--grid);
+  border-color: var(--grid);
+  color: var(--dim);
+}
+/* Active: same color as the fader each button lives under -- SOLO under Bumps, BLACKOUT
+   under Master. IDs so these beat the generic .ind-button.on / .blackout.on rules. */
+#ind-solo.on .light {
+  background: var(--whitebutton);
+  border-color: var(--bumps);
+  color: var(--dim);
+  box-shadow: 0 0 10px var(--bumps);
+}
+#ind-blackout.on .light {
+  background: var(--master);
+  border-color: var(--master);
+  color: var(--dim);
+  box-shadow: 0 0 10px var(--master);
 }
 .ind-button .lbl {
   font-size: 11px;

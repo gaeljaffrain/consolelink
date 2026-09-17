@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ConsoleLink for SmartFadeML - Playback</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -16,7 +17,7 @@
   </div>
 
   <div class="section section-row" id="section-master-bumps">
-    <div class="section-title">Master &amp; Bumps</div>
+    <div class="section-title">MAIN</div>
     <div class="special-row">
       <div class="fader special-fader" id="fader-master">
         <div class="number">MASTER</div>
@@ -24,7 +25,11 @@
           <div class="track"><div class="fill master" style="height:0%"></div></div>
           <div class="val">0</div>
         </div>
-        <div class="name"></div>
+        <div class="name">
+          <div class="ind-button ind-mini placeholder blackout" id="ind-blackout">
+            <div class="light">BLACK OUT</div>
+          </div>
+        </div>
       </div>
       <div class="fader special-fader" id="fader-bumps">
         <div class="number">BUMPS</div>
@@ -32,7 +37,11 @@
           <div class="track"><div class="fill bumps" style="height:0%"></div></div>
           <div class="val">0</div>
         </div>
-        <div class="name"></div>
+        <div class="name">
+          <div class="ind-button ind-mini placeholder" id="ind-solo">
+            <div class="light">SOLO</div>
+          </div>
+        </div>
       </div>
       <div class="ind-button placeholder" id="ind-1">
         <div class="light">?</div>
@@ -43,14 +52,6 @@
         <div class="light">?</div>
         <div class="number">IND 2</div>
         <div class="name"></div>
-      </div>
-      <div class="ind-button placeholder" id="ind-solo">
-        <div class="light">?</div>
-        <div class="lbl">SOLO</div>
-      </div>
-      <div class="ind-button placeholder blackout" id="ind-blackout">
-        <div class="light">?</div>
-        <div class="lbl">BLACKOUT</div>
       </div>
     </div>
   </div>
@@ -109,12 +110,16 @@ function setFader(el, value) {
 }
 
 // state is null until the first type=0x0c message arrives (still "placeholder" until then),
-// then true/false.
-function setIndicator(el, state) {
+// then true/false. keepLabel is for buttons like SOLO/BLACKOUT whose .light already has a
+// permanent text label in the HTML -- skip overwriting it with the "?"/empty placeholder text
+// used by IND 1/2, whose own label lives in a separate .number/.name pair instead.
+function setIndicator(el, state, keepLabel) {
   if (!el) return;
   el.classList.toggle("placeholder", state === null);
   el.classList.toggle("on", state === true);
-  el.querySelector(".light").textContent = state === null ? "?" : "";
+  if (!keepLabel) {
+    el.querySelector(".light").textContent = state === null ? "?" : "";
+  }
 }
 
 let lastUpdate = 0;
@@ -149,16 +154,14 @@ function render(state) {
 
   setIndicator(document.getElementById("ind-1"), state.independent1);
   setIndicator(document.getElementById("ind-2"), state.independent2);
-  setIndicator(document.getElementById("ind-solo"), state.solo);
-  setIndicator(document.getElementById("ind-blackout"), state.blackout);
+  setIndicator(document.getElementById("ind-solo"), state.solo, true);
+  setIndicator(document.getElementById("ind-blackout"), state.blackout, true);
   const ind1 = document.getElementById("ind-1");
   const ind2 = document.getElementById("ind-2");
   ind1.querySelector(".number").textContent = "IND 1";
   ind2.querySelector(".number").textContent = "IND 2";
   ind1.querySelector(".name").textContent = state.independent_labels?.[1] || "";
   ind2.querySelector(".name").textContent = state.independent_labels?.[2] || "";
-  document.getElementById("ind-solo").querySelector(".lbl").textContent = "SOLO";
-  document.getElementById("ind-blackout").querySelector(".lbl").textContent = "BLACKOUT";
 
   lastUpdate = state.last_update;
 }
