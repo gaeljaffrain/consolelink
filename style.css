@@ -12,6 +12,7 @@
   --bumps: #5cff8f;
   --ok: #5cff8f;
   --bad: #ff5c5c;
+  --greenfader: #d3f8b5
 }
 * { box-sizing: border-box; }
 body {
@@ -69,8 +70,8 @@ h1 {
   background: var(--panel);
   border: 1px solid var(--grid);
   border-radius: 10px;
-  padding: 14px 16px 18px;
-  margin-bottom: 16px;
+  padding: 8px 16px 8px;
+  margin-bottom: 8px;
 }
 .section-title {
   font-size: 12px;
@@ -93,6 +94,25 @@ h1 {
   font-weight: 700;
 }
 .section.dim .section-title { opacity: 0.6; }
+
+/* INT A/B/DEV sections only: title as a left column instead of a row above the faders,
+   so each row is shorter vertically. */
+.section.section-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.section.section-row .section-title {
+  flex: 0 0 60px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  margin-bottom: 0;
+}
+.section.section-row .fader-row {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .fader-row {
   display: flex;
   gap: 6px;
@@ -102,14 +122,17 @@ h1 {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   min-width: 0;
   flex: 1 1 0;
   height: auto;
+  border: 1px solid var(--grid);
+  border-radius: 4px;
+  padding: 4px;
 }
 .fader .track {
   width: 100%;
-  height: 130px;
+  height: 60px;
   background: #0e0f12;
   border: 1px solid var(--grid);
   border-radius: 4px;
@@ -127,17 +150,9 @@ h1 {
   transition: height 80ms linear;
 }
 .fader.nonzero .fill { background: #d3f8b5; }
-.fader {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  flex: 1 1 0;
-  justify-content: flex-start;
-  height: 180px;
-}
 .fader .val {
   font-size: 10px;
-  color: var(--dim);
+  color: var(--greenfader);
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
   flex-shrink: 0;
@@ -160,6 +175,40 @@ h1 {
 .fader .number {
   height: 1.2em;
 }
+
+/* INT A/B/DEV rows only (not Master/Bumps' .special-fader): a compact layout with the fader
+   number as a header above a narrow bar, and a large value readout next to it. */
+.fader-row .fader .number {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--grid);
+  border-radius: 4px 4px 0 0;
+  height: auto;
+  line-height: 1.5;
+  margin-bottom: 4px;
+}
+.fader-row .fader .value-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  gap: 4px;
+  width: 100%;
+  height: 60px;
+}
+.fader-row .fader .track {
+  width: 16px;
+  flex: 0 0 16px;
+}
+.fader-row .fader .val {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--greenfader);
+  height: auto;
+  margin-top: 0;
+  line-height: 1;
+  align-self: center;
+}
 .fader .name,
 .ind-button .name {
   font-size: 11px;
@@ -178,7 +227,7 @@ h1 {
   gap: 24px;
 }
 .special-fader + .special-fader { margin-left: -18px; }
-.special-fader .track { height: 160px; }
+.special-fader .track { height: 110px; }
 .special-fader {
   flex: 0 0 calc((100% - 138px) / 24);
   width: calc((100% - 138px) / 24);
