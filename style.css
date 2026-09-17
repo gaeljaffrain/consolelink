@@ -216,6 +216,7 @@ h1 {
   color: var(--text);
   line-height: 1.2;
   height: 2.4em;
+  margin-top: 4px;
   white-space: normal;
   overflow: hidden;
   text-overflow: clip;
