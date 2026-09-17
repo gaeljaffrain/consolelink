@@ -14,6 +14,7 @@
   /* SmartFadeML style colors */
   --master: #5647f4;
   --bumps: #808080;
+  --ind: #ffb84f;
   --greenfader: #d3f8b5;
   --whitebutton: #ffffff;
 }
@@ -285,8 +286,11 @@ h1 {
 }
 .special-fader .fill.master { background: var(--master); }
 .special-fader .fill.bumps { background: var(--bumps); }
+.special-fader .fill.ind { background: var(--ind); }
 #fader-master .val { color: var(--master); }
 #fader-bumps .val { color: var(--bumps); }
+#fader-ind1 .val,
+#fader-ind2 .val { color: var(--ind); }
 
 .placeholder .track { display: flex; align-items: center; justify-content: center; }
 .placeholder .track::after {

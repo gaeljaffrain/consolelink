@@ -43,15 +43,29 @@
           </div>
         </div>
       </div>
-      <div class="ind-button placeholder" id="ind-1">
-        <div class="light">?</div>
+      <div class="fader special-fader" id="fader-ind1">
         <div class="number">IND 1</div>
-        <div class="name"></div>
+        <div class="value-row">
+          <div class="track"><div class="fill ind" style="height:0%"></div></div>
+          <div class="val">0</div>
+        </div>
+        <div class="name">
+          <div class="ind-button ind-mini placeholder" id="ind-1">
+            <div class="light">?</div>
+          </div>
+        </div>
       </div>
-      <div class="ind-button placeholder" id="ind-2">
-        <div class="light">?</div>
+      <div class="fader special-fader" id="fader-ind2">
         <div class="number">IND 2</div>
-        <div class="name"></div>
+        <div class="value-row">
+          <div class="track"><div class="fill ind" style="height:0%"></div></div>
+          <div class="val">0</div>
+        </div>
+        <div class="name">
+          <div class="ind-button ind-mini placeholder" id="ind-2">
+            <div class="light">?</div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -122,6 +136,18 @@ function setIndicator(el, state, keepLabel) {
   }
 }
 
+// IND 1/2 are a fader (live 0-255 value, like Master/Bumps) plus a click button showing the
+// Independent's patched name -- "on" here means "currently nonzero", not a separate click bit
+// (RE notes Part 28: the value used to look boolean because it was only ever tested fully on
+// or off; a real capture showed it's a full 0-255 raw value like any other control).
+function setIndependent(faderEl, btnEl, value, label) {
+  setFader(faderEl, value === null ? 0 : value);
+  const known = value !== null;
+  btnEl.classList.toggle("placeholder", !known);
+  btnEl.classList.toggle("on", known && value > 0);
+  btnEl.querySelector(".light").textContent = known ? (label || "") : "?";
+}
+
 let lastUpdate = 0;
 
 function render(state) {
@@ -152,16 +178,12 @@ function render(state) {
   setFader(document.getElementById("fader-master"), state.master);
   setFader(document.getElementById("fader-bumps"), state.bumps);
 
-  setIndicator(document.getElementById("ind-1"), state.independent1);
-  setIndicator(document.getElementById("ind-2"), state.independent2);
+  setIndependent(document.getElementById("fader-ind1"), document.getElementById("ind-1"),
+    state.independent1, state.independent_labels?.[1]);
+  setIndependent(document.getElementById("fader-ind2"), document.getElementById("ind-2"),
+    state.independent2, state.independent_labels?.[2]);
   setIndicator(document.getElementById("ind-solo"), state.solo, true);
   setIndicator(document.getElementById("ind-blackout"), state.blackout, true);
-  const ind1 = document.getElementById("ind-1");
-  const ind2 = document.getElementById("ind-2");
-  ind1.querySelector(".number").textContent = "IND 1";
-  ind2.querySelector(".number").textContent = "IND 2";
-  ind1.querySelector(".name").textContent = state.independent_labels?.[1] || "";
-  ind2.querySelector(".name").textContent = state.independent_labels?.[2] || "";
 
   lastUpdate = state.last_update;
 }

@@ -58,7 +58,7 @@ state = {
     "independent_labels": {},
     "bumps": 0,
     "master": 0,
-    "independent1": None,  # None until the first type=0x0c message; then True/False (RE notes Part 28)
+    "independent1": None,  # None until the first type=0x0c message; then a raw 0-255 value (RE notes Part 28)
     "independent2": None,
     "solo": None,  # None until the first type=0x16 message; then True/False (RE notes Part 29)
     "blackout": None,

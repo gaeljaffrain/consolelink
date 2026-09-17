@@ -279,19 +279,21 @@ _0X0C_MARKER = bytes.fromhex("ff0001030600")
 
 
 def decode_0x0c(data):
-    """type=0x0c: Independent 1/2 name + on/off state table (RE notes Part 28).
+    """type=0x0c: Independent 1/2 name + live value table (RE notes Part 28, revised).
 
     Confirmed live against an isolated single-button test (traces/capture_ind1.log): a solo
     type=0x28 announce of 0x0c fires only on an Independent button press, nothing else. Each
-    entry is `[state: 0x00/0x01][marker: ff 00 01 03 06 00][name, UTF-16LE]`; the byte right
-    before the marker flips 0x00<->0x01 exactly tracking that Independent's on/off state.
-    Entries appear in physical order (1st = IND 1, 2nd = IND 2). The name field's exact
-    fixed-width layout isn't pinned down -- decoding here just strips embedded NULs, which
-    may collapse an intentional space (the test console's IND 1 decoded to "Worklight", which
-    could be "Work light" with the gap lost). Marker-scanning rather than fixed offsets, so
-    it degrades gracefully if there are ever more than 2 entries.
+    entry is `[value: 0-255][marker: ff 00 01 03 06 00][name, UTF-16LE]`; the byte right
+    before the marker tracks that Independent's live value. Originally assumed boolean
+    (0x00/0x01 was all that test's single on/off press ever produced), but live testing shows
+    this is a full 0-255 raw value like any other fader/bump -- not just on/off. Entries appear
+    in physical order (1st = IND 1, 2nd = IND 2). The name field's exact fixed-width layout
+    isn't pinned down -- decoding here just strips embedded NULs, which may collapse an
+    intentional space (the test console's IND 1 decoded to "Worklight", which could be "Work
+    light" with the gap lost). Marker-scanning rather than fixed offsets, so it degrades
+    gracefully if there are ever more than 2 entries.
 
-    Returns e.g. {1: (True, 'Worklight'), 2: (False, '')}.
+    Returns e.g. {1: (168, 'Worklight'), 2: (0, '')} -- raw 0-255 value, not bool.
     """
     starts = [i for i in range(len(data) - len(_0X0C_MARKER) + 1)
               if data[i:i + len(_0X0C_MARKER)] == _0X0C_MARKER]
@@ -299,7 +301,7 @@ def decode_0x0c(data):
     for n, off in enumerate(starts):
         if off < 1:
             continue
-        state = bool(data[off - 1])
+        state = data[off - 1]
         name_start = off + len(_0X0C_MARKER)
         name_end = (starts[n + 1] - 1) if n + 1 < len(starts) else len(data)
         name_raw = data[name_start:name_end if name_end > name_start else name_start]
