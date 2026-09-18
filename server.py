@@ -131,13 +131,9 @@ def handle_payload(obj_type, data):
             with state_condition:
                 for mode in FADER_MODES:
                     state["labels"][mode].update(labels.get(mode, {}))
-                # independent_labels feeds the IND 1/2 button's single-line label (not a
-                # 3-line name block like the fader rows get), and is also written as a plain
-                # string by decode_0x0c below -- join type=0x09's 3 lines to match that shape.
-                state["independent_labels"].update({
-                    index: " ".join(part for part in lines if part)
-                    for index, lines in labels.get("Independent", {}).items()
-                })
+                # independent_labels feeds the IND 1/2 button's 3-line name block, same as the
+                # fader rows -- kept as [line1, line2, line3], not joined into one string.
+                state["independent_labels"].update(labels.get("Independent", {}))
                 state["last_update"] = time.time()
                 state_condition.notify_all()
     # Independents (toggle/bump buttons, not faders)
@@ -150,10 +146,13 @@ def handle_payload(obj_type, data):
         if 2 in entries:
             update["independent2_clicked"] = entries[2][0]
             update["independent2"] = entries[2][1]
-        if 1 in entries and entries[1][2]:
+        # entries[n][2] is [line1, line2, line3] (same 3-line shape decode_0x09_labels uses,
+        # RE notes Part 42) -- kept as-is, not joined, so the UI can show 3 lines like the
+        # fader rows do.
+        if 1 in entries and any(entries[1][2]):
             update.setdefault("independent_labels", {})
             update["independent_labels"][1] = entries[1][2]
-        if 2 in entries and entries[2][2]:
+        if 2 in entries and any(entries[2][2]):
             update.setdefault("independent_labels", {})
             update["independent_labels"][2] = entries[2][2]
         if DEBUG and update:

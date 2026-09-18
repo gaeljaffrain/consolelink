@@ -4,6 +4,7 @@
   --panel: #1f2126;
   --grid: #2a2d34;
   --text: #d9dbe1;
+  --darktext: #0b0c0e;
   --dim: #7a7e8a;
   --accent: #4fb0ff;
   --bar: #3d8bd6;
@@ -263,10 +264,20 @@ h1 {
   flex-direction: column;
   width: 100%;
   margin-top: 4px;
+  /* Explicit, not just "3 .name-line rows add up to this" -- BLACK OUT/SOLO (under Master/
+     Bumps) only ever hold a single line, so they need this container's height pinned to the
+     same 3-line total (3 * 13px) rather than shrinking to fit their own shorter content. */
+  height: 39px;
 }
-.name-line {
+/* Every name/label in this row (24-fader names, IND 1/2 names, SOLO/BLACKOUT) shares this
+   font size and weight -- one shared rule instead of repeating the same two values in each
+   context below, which only differ in line-height/height/color/wrapping. */
+.name-line,
+.ind-button.ind-mini .light {
   font-size: 10px;
   font-weight: 600;
+}
+.name-line {
   color: var(--text);
   line-height: 1.3;
   height: 1.3em;
@@ -355,7 +366,6 @@ h1 {
   height: 100%;
   min-height: 0;
   border-radius: 4px;
-  font-size: 11px;
   letter-spacing: -0.03em;
   line-height: 1.15;
   padding: 1px;
@@ -370,20 +380,38 @@ h1 {
 #ind-solo.on .light {
   background: var(--whitebutton);
   border-color: var(--bumps);
-  color: var(--dim);
+  /* Text color, not button color: white background needs dark text for contrast, distinct
+     from BLACKOUT's dark-purple background below which needs the opposite. */
+  color: var(--darktext);
   box-shadow: 0 0 10px var(--bumps);
 }
 #ind-blackout.on .light {
   background: var(--master);
   border-color: var(--master);
-  color: var(--dim);
+  color: var(--text);
   box-shadow: 0 0 10px var(--master);
+}
+/* IND 1/2's button shows the Independent's name as 3 lines, same as the fader rows (RE notes
+   Part 41/42), instead of SOLO/BLACKOUT's single static label -- override the centered
+   single-line layout inherited from .ind-button .light with a column of small rows. */
+#ind-1 .light,
+#ind-2 .light {
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+}
+#ind-1 .light .name-line,
+#ind-2 .light .name-line {
+  line-height: 1.15;
+  height: 1.15em;
+  color: inherit;
 }
 #ind-1.on .light,
 #ind-2.on .light {
   background: var(--greenfader);
   border-color: var(--greenfader);
-  color: var(--dim);
+  /* Pale green background, same as SOLO's white -- needs dark text, not BLACKOUT's light. */
+  color: var(--darktext);
   box-shadow: 0 0 10px var(--greenfader);
 }
 .ind-button .lbl {

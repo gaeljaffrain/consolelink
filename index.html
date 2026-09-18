@@ -51,7 +51,11 @@
         </div>
         <div class="name">
           <div class="ind-button ind-mini placeholder" id="ind-1">
-            <div class="light">?</div>
+            <div class="light">
+              <div class="name-line"></div>
+              <div class="name-line"></div>
+              <div class="name-line"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -63,7 +67,11 @@
         </div>
         <div class="name">
           <div class="ind-button ind-mini placeholder" id="ind-2">
-            <div class="light">?</div>
+            <div class="light">
+              <div class="name-line"></div>
+              <div class="name-line"></div>
+              <div class="name-line"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -130,17 +138,16 @@ function setFader(el, value) {
 // The console's own name field is 3 short lines (6/6/5 chars, RE notes Part 41), not one
 // long string -- render each on its own row exactly as the console lays it out, rather than
 // word-wrapping a joined string to whatever width this column happens to be.
-function setName(faderEl, lines) {
-  const lineEls = faderEl.querySelectorAll(".name-line");
+function setName(container, lines) {
+  const lineEls = container.querySelectorAll(".name-line");
   for (let i = 0; i < lineEls.length; i++) {
     lineEls[i].textContent = lines?.[i] || "";
   }
 }
 
-// state is null until the first type=0x0c message arrives (still "placeholder" until then),
-// then true/false. keepLabel is for buttons like SOLO/BLACKOUT whose .light already has a
-// permanent text label in the HTML -- skip overwriting it with the "?"/empty placeholder text
-// used by IND 1/2, whose own label lives in a separate .number/.name pair instead.
+// state is null until the first type=0x16 message arrives (still "placeholder" until then),
+// then true/false. keepLabel is for SOLO/BLACKOUT, whose .light already has a permanent
+// text label baked into the HTML -- skip overwriting it with the "?"/empty placeholder text.
 function setIndicator(el, state, keepLabel) {
   if (!el) return;
   el.classList.toggle("placeholder", state === null);
@@ -157,12 +164,12 @@ function setIndicator(el, state, keepLabel) {
 // while `clicked` is whether that level is currently reaching output. So the bar shows
 // `clicked ? value : 0`, the same "stored level only reaches output while engaged" pattern
 // already confirmed for Bump buttons (Part 16), not the raw value unconditionally.
-function setIndependent(faderEl, btnEl, value, clicked, label) {
+function setIndependent(faderEl, btnEl, value, clicked, lines) {
   setFader(faderEl, (value === null || clicked !== true) ? 0 : value);
   const known = clicked !== null;
   btnEl.classList.toggle("placeholder", !known);
   btnEl.classList.toggle("on", known && clicked === true);
-  btnEl.querySelector(".light").textContent = known ? (label || "") : "?";
+  setName(btnEl.querySelector(".light"), known ? lines : ["?", "", ""]);
 }
 
 let lastUpdate = 0;

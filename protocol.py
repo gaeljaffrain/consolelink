@@ -290,9 +290,11 @@ _0X0C_MARKER = bytes.fromhex("0001030600")
 
 def decode_0x0c(data):
     """type=0x0c: Independent 1/2 name + click-state + live value table (RE notes Part 28,
-    corrected in Part 39 against a real capture with a non-full value).
+    corrected in Part 39 against a real capture with a non-full value, and Part 42 for the
+    name field's real structure).
 
-    Each entry is `[clicked: 0x00/0x01][value: 0-255][marker: 00 01 03 06 00][name, UTF-16LE]`.
+    Each entry is `[clicked: 0x00/0x01][value: 0-255][marker: 00 01 03 06 00][name: 3 lines,
+    same 12+12+11-byte layout as type=0x09's NamedItem, Part 41]` -- 42 bytes per entry.
     Originally the marker was thought to be 6 bytes (`ff 00 01 03 06 00`) with a single
     boolean byte before it -- that was `capture_ind1.log`'s single on/off press test, which
     coincidentally sat at a "full" value (0xff) the whole time, making the value byte look like
@@ -302,14 +304,21 @@ def decode_0x0c(data):
     on the console. The `clicked` byte (still 0x00/0x01 in every sample) is a genuinely separate
     bit from the value -- it toggled twice in that capture while the value stayed constant, i.e.
     "is this Independent's button currently held/latched on" is independent from "what level is
-    it set to." Entries appear in physical order (1st = IND 1, 2nd = IND 2). The name field's
-    exact fixed-width layout isn't pinned down -- decoding here just strips embedded NULs, which
-    may collapse an intentional space (the test console's IND 1 decoded to "Worklight", which
-    could be "Work light" with the gap lost). Marker-scanning rather than fixed offsets, so it
-    degrades gracefully if there are ever more than 2 entries.
+    it set to." Entries appear in physical order (1st = IND 1, 2nd = IND 2).
 
-    Returns e.g. {1: (False, 73, 'Worklight'), 2: (False, 196, '')} -- (clicked, raw 0-255
-    value, name).
+    The name field was originally read as "everything between this marker and the next,
+    nulls stripped" -- which happened to produce the right characters but silently dropped the
+    space between multi-word names (`capture_ind1_toggle.log`'s IND 1 decoded to "Worklight"
+    instead of "Work light", because nothing reinserted a boundary between the fixed-width
+    "Work"+pad and "light"+pad sub-fields once the padding nulls were gone). Confirmed directly
+    against that capture: IND 2's fields start at exactly byte 43 of the payload -- 1 (clicked)
+    + 1 (value) + 5 (marker) + 35 (3-line name) + 1 = 43 into IND 1's own record -- so the name
+    really is 3 fixed-width lines like every other named item in this protocol, not a variable-
+    length run bounded by the next marker. Marker-scanning still finds each entry's start, so
+    this degrades gracefully if there are ever more than 2 entries.
+
+    Returns e.g. {1: (False, 73, ['Work', 'light', '']), 2: (False, 196, ['', '', ''])} --
+    (clicked, raw 0-255 value, [line1, line2, line3] -- same shape as decode_0x09_labels).
     """
     starts = [i for i in range(len(data) - len(_0X0C_MARKER) + 1)
               if data[i:i + len(_0X0C_MARKER)] == _0X0C_MARKER]
@@ -320,12 +329,10 @@ def decode_0x0c(data):
         clicked = bool(data[off - 2])
         value = data[off - 1]
         name_start = off + len(_0X0C_MARKER)
-        name_end = (starts[n + 1] - 2) if n + 1 < len(starts) else len(data)
-        name_raw = data[name_start:name_end if name_end > name_start else name_start]
-        if len(name_raw) % 2:
-            name_raw = name_raw[:-1]
-        name = "".join(ch for ch in name_raw.decode("utf-16-le", errors="ignore") if ch.isprintable())
-        result[n + 1] = (clicked, value, name)
+        line1 = data[name_start:name_start + 12].decode("utf-16-le", errors="ignore").rstrip("\x00").strip()
+        line2 = data[name_start + 12:name_start + 24].decode("utf-16-le", errors="ignore").rstrip("\x00").strip()
+        line3 = data[name_start + 24:name_start + 35].decode("utf-16-le", errors="ignore").rstrip("\x00").strip()
+        result[n + 1] = (clicked, value, [line1, line2, line3])
     return result
 
 
