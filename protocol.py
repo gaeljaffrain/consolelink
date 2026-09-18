@@ -210,13 +210,23 @@ def decode_0x09_labels(data):
     """Decode the per-item name table for INT A / INT B / DEVICE INT / Independents.
 
     The console sends a series of 39-byte records, each structured as:
-      page: index 0, then tag 0x03 0x06, then a UTF-16LE 2-line label.
+      page: index 0, then tag 0x03 0x06 + 1 pad byte, then a UTF-16LE 3-line label:
+      line1[12] (6 chars), line2[12] (6 chars), line3[11] (5 chars + 1 dangling byte --
+      the record is a byte short of a full 6-char third line, so the console's own firmware
+      silently truncates a 6-character third word to 5, e.g. "Orange" -> "Orang". Confirmed
+      against trace_fresh_start.pcapng's full 74-record table: 10 of 74 records use this third
+      line for a color name ("Side"/""/"Orang", "Window"/"Left"/"Cyan", "CYC"/""/"Red", ...),
+      and "Orang" for "Orange" is exactly what the real console's own display shows -- not a
+      decode bug on this end, a genuine one-byte-short field in the wire format.
     The page number maps to the 74 positional entries of the console's item model:
       0-23   IntA1-24
       24-47  IntB1-24
       48-71  Device1-24
       72-73  Independent1-2
-    Returns a dict keyed by item family, with values of {index: label}.
+    Returns a dict keyed by item family, with values of {index: [line1, line2, line3]} --
+    the label's 3 lines exactly as laid out on the wire (and on the console's own display),
+    not collapsed into one string, so a caller can render them on their own 3 rows the way
+    the console does rather than word-wrapping a joined string to a different width.
     """
     if len(data) < 39:
         return {"INT A": {}, "INT B": {}, "DEVICE INT": {}, "Independent": {}}
@@ -227,7 +237,7 @@ def decode_0x09_labels(data):
 
     for offset in range(0, len(data), 39):
         record = data[offset:offset + 39]
-        if len(record) < 28:
+        if len(record) < 39:
             continue
         page = record[0]
         if page < 0 or page > 73:
@@ -235,8 +245,8 @@ def decode_0x09_labels(data):
 
         line1 = record[4:16].decode("utf-16-le", errors="ignore").replace("\uffff", "").rstrip("\x00\ufffd").strip()
         line2 = record[16:28].decode("utf-16-le", errors="ignore").replace("\uffff", "").rstrip("\x00\ufffd").strip()
-        label = " ".join(part for part in (line1, line2) if part).strip()
-        if not label:
+        line3 = record[28:39].decode("utf-16-le", errors="ignore").replace("\uffff", "").rstrip("\x00\ufffd").strip()
+        if not (line1 or line2 or line3):
             continue
 
         if 0 <= page <= 23:
@@ -252,7 +262,7 @@ def decode_0x09_labels(data):
             family = "Independent"
             index = page - 72 + 1
 
-        result[family][index] = label
+        result[family][index] = [line1, line2, line3]
     return result
 
 

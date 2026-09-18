@@ -100,7 +100,11 @@ function buildFaders(mode) {
         <div class="track"><div class="fill" style="height:0%"></div></div>
         <div class="val">0</div>
       </div>
-      <div class="name"></div>`;
+      <div class="name">
+        <div class="name-line"></div>
+        <div class="name-line"></div>
+        <div class="name-line"></div>
+      </div>`;
     row.appendChild(f);
   }
 }
@@ -121,6 +125,16 @@ function setFader(el, value) {
   fill.style.height = pct(value) + "%";
   val.textContent = pctLabel(value);
   el.classList.toggle("nonzero", value > 0);
+}
+
+// The console's own name field is 3 short lines (6/6/5 chars, RE notes Part 41), not one
+// long string -- render each on its own row exactly as the console lays it out, rather than
+// word-wrapping a joined string to whatever width this column happens to be.
+function setName(faderEl, lines) {
+  const lineEls = faderEl.querySelectorAll(".name-line");
+  for (let i = 0; i < lineEls.length; i++) {
+    lineEls[i].textContent = lines?.[i] || "";
+  }
 }
 
 // state is null until the first type=0x0c message arrives (still "placeholder" until then),
@@ -172,9 +186,8 @@ function render(state) {
     for (let i = 1; i <= 24; i++) {
       const el = document.getElementById("fader-" + mode + "-" + i);
       setFader(el, state.faders[mode][i - 1]);
-      const label = state.labels?.[mode]?.[i] || "";
       el.querySelector(".number").textContent = String(i);
-      el.querySelector(".name").textContent = label;
+      setName(el, state.labels?.[mode]?.[i]);
     }
   });
 

@@ -123,15 +123,21 @@ def handle_payload(obj_type, data):
     elif obj_type == 0x09:
         labels = sfl.decode_0x09_labels(data)
         if labels:
-            received = [(family, index, name)
+            received = [(family, index, lines)
                         for family, entries in labels.items()
-                        for index, name in entries.items()]
-            for family, index, name in received:
-                print(f"[label] {family} {index}: {name!r}", file=sys.stderr)
+                        for index, lines in entries.items()]
+            for family, index, lines in received:
+                print(f"[label] {family} {index}: {lines!r}", file=sys.stderr)
             with state_condition:
                 for mode in FADER_MODES:
                     state["labels"][mode].update(labels.get(mode, {}))
-                state["independent_labels"].update(labels.get("Independent", {}))
+                # independent_labels feeds the IND 1/2 button's single-line label (not a
+                # 3-line name block like the fader rows get), and is also written as a plain
+                # string by decode_0x0c below -- join type=0x09's 3 lines to match that shape.
+                state["independent_labels"].update({
+                    index: " ".join(part for part in lines if part)
+                    for index, lines in labels.get("Independent", {}).items()
+                })
                 state["last_update"] = time.time()
                 state_condition.notify_all()
     # Independents (toggle/bump buttons, not faders)
