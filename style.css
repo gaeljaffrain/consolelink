@@ -75,9 +75,12 @@ h1 {
   padding: 3px 12px;
   font-weight: 600;
 }
-.mode-pill.active-A { color: #4fb0ff; }
-.mode-pill.active-B { color: #b06bff; }
-.mode-pill.active-D { color: #ffb84f; }
+.mode-pill.active-A { color: var(--greenfader); }
+.mode-pill.active-B { color: var(--greenfader); }
+.mode-pill.active-D { color: var(--greenfader); }
+.mode-pill.active-P1 { color: var(--greenfader); }
+.mode-pill.active-P2 { color: var(--greenfader); }
+.mode-pill.active-M { color: #ff0000; }
 .mode-pill.unconfirmed { opacity: 0.55; font-style: italic; }
 
 .section {
@@ -97,9 +100,9 @@ h1 {
   align-items: center;
   gap: 8px;
 }
-.section-title .live-badge {
+.section-title .active-badge {
   font-size: 10px;
-  background: var(--bar);
+  background: var(--greenfader);
   color: #0b0c0e;
   border-radius: 4px;
   padding: 1px 6px;

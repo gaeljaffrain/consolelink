@@ -79,22 +79,30 @@
   </div>
 
   <div class="section section-row" id="section-INT A">
-    <div class="section-title">INT A <span class="live-badge" style="display:none">Active</span></div>
+    <div class="section-title">INT A <span class="active-badge" style="display:none">Active</span></div>
     <div class="fader-row" id="faders-INT A"></div>
   </div>
 
   <div class="section section-row" id="section-INT B">
-    <div class="section-title">INT B <span class="live-badge" style="display:none">Active</span></div>
+    <div class="section-title">INT B <span class="active-badge" style="display:none">Active</span></div>
     <div class="fader-row" id="faders-INT B"></div>
   </div>
 
   <div class="section section-row" id="section-DEVICE INT">
-    <div class="section-title">INT DEV <span class="live-badge" style="display:none">Active</span></div>
+    <div class="section-title">INT DEV <span class="active-badge" style="display:none">Active</span></div>
     <div class="fader-row" id="faders-DEVICE INT"></div>
   </div>
 
 <script>
 const MODES = ["INT A", "INT B", "DEVICE INT"];
+const MODE_PILL_CLASS = {
+  "INT A": "active-A",
+  "INT B": "active-B",
+  "DEVICE INT": "active-D",
+  "PARAM 1": "active-P1",
+  "PARAM 2": "active-P2",
+  "MEMS": "active-M",
+};
 
 function buildFaders(mode) {
   const row = document.getElementById("faders-" + mode);
@@ -189,12 +197,12 @@ function render(state) {
   connText.textContent = state.connected ? "connected" : "waiting for console…";
 
   const pill = document.getElementById("mode-pill");
-  const modeClass = state.fader_mode === "INT A" ? "active-A" : state.fader_mode === "INT B" ? "active-B" : "active-D";
+  const modeClass = MODE_PILL_CLASS[state.fader_mode] || "active-D";
   pill.className = "mode-pill " + modeClass + (state.fader_mode_confirmed ? "" : " unconfirmed");
   pill.textContent = "mode: " + state.fader_mode + (state.fader_mode_confirmed ? "" : " (assumed default)");
 
   MODES.forEach(mode => {
-    const badge = document.querySelector("#section-" + CSS.escape(mode) + " .live-badge");
+    const badge = document.querySelector("#section-" + CSS.escape(mode) + " .active-badge");
     const isActive = mode === state.fader_mode;
     badge.style.display = isActive ? "inline-block" : "none";
     document.getElementById("section-" + mode).classList.toggle("dim", !isActive);

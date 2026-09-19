@@ -50,9 +50,10 @@ Decodes:
     N=1/2/24, Part 37-38) are each fader's Bump-LED "catch" indicator --
     fixed at (0x46, 0x0a) while that fader's Bump LED is blinking (unlatched
     after a fader-mode switch), else tracks its live output 1:1.
-  - type=0x17 (7 bytes): the fader-mode selector (INT A/INT B/DEVICE INT,
-    Part 15) -- only fires unprompted on a mode CHANGE, but request_type()
-    gets the true current mode on demand regardless (Part 32).
+  - type=0x17 (7 bytes): the fader-mode selector, all six modes (INT A/INT
+    B/DEVICE INT/PARAM 1/PARAM 2/MEMS, Part 15 + later confirmation) --
+    only fires unprompted on a mode CHANGE, but request_type() gets the
+    true current mode on demand regardless (Part 32).
   - type=0x18 (variable): the Device/Palette-Select row's resulting
     selection state as `[count][ids...]`, not a raw button code (Part 13).
   - type=0x0c (85 bytes): Independent 1/2 name + on/off state (Part 28).
@@ -187,15 +188,36 @@ def decode_0x15(data):
     return lines
 
 
-FADER_MODE_NAMES = {0: "INT A", 1: "INT B", 2: "DEVICE INT"}
+INTENSITY_SUBMODE_NAMES = {0: "INT A", 1: "INT B", 2: "DEVICE INT"}
 
 
 def decode_0x17(data):
-    """type=0x17 (7 bytes): data[4] = fader mode being switched to (Part 15). Only fires on change."""
+    """type=0x17 (7 bytes): the fader-mode selector. Only fires on change.
+
+    Two-field encoding (Part 15 confirmed data[4] for the intensity family;
+    a later capture cycling INT A -> INT B -> DEVICE INT -> PARAM 1 ->
+    PARAM 2 -> MEMS -> INT A with nothing else touched, one button per ~2s,
+    gave a clean single-bit-diff transition at every step and confirmed the
+    rest):
+      data[0]: family -- 0 = intensity (INT A/B/DEVICE INT), 1 = MEMS,
+               2 = PARAM (device parameters)
+      data[4]: sub-mode within the intensity family (0/1/2 = INT A/INT B/
+               DEVICE INT) -- stale/meaningless once data[0] != 0
+      data[3]: sub-mode within the PARAM family (0 = PARAM 1, 1 = PARAM 2)
+               -- stale/meaningless once data[0] != 2
+    MEMS corroborated independently: the console's LCD (type=0x15) shows
+    "Memory page:1" the instant data[0] becomes 1.
+    """
     if len(data) < 5:
         return None
-    mode = data[4]
-    return FADER_MODE_NAMES.get(mode, f"unknown({mode})")
+    family = data[0]
+    if family == 0:
+        return INTENSITY_SUBMODE_NAMES.get(data[4], f"unknown intensity submode({data[4]})")
+    if family == 1:
+        return "MEMS"
+    if family == 2:
+        return "PARAM 1" if data[3] == 0 else "PARAM 2"
+    return f"unknown family({family})"
 
 
 def decode_0x18(data):

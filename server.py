@@ -47,7 +47,8 @@ STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
 # than in the terminal tool despite sharing the same protocol code.
 CAPTURE_PATH = os.environ.get("SMARTFADE_CAPTURE", "")
 
-FADER_MODES = ("INT A", "INT B", "DEVICE INT")
+FADER_MODES = ("INT A", "INT B", "DEVICE INT")  # modes with a decoded live fader bank (type=0x0e/0x0f)
+ALL_FADER_MODES = FADER_MODES + ("PARAM 1", "PARAM 2", "MEMS")  # every mode type=0x17 can report (RE notes Part 44)
 
 state = {
     "connected": False,
@@ -114,7 +115,7 @@ def handle_payload(obj_type, data):
     # Fader mode
     elif obj_type == 0x17:
         mode = sfl.decode_0x17(data)
-        if mode in FADER_MODES:
+        if mode in ALL_FADER_MODES:
             if DEBUG:
                 print(f"[mode] t={time.time() - _t_start:7.3f}  "
                       f"{state['fader_mode']} -> {mode} (now confirmed)", file=sys.stderr)
