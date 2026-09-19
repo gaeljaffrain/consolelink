@@ -105,15 +105,16 @@ def main():
             if ids is not None:
                 show("Selection", ids)
         elif obj_type == 0x0c:
-            for idx, (state, name) in sfl.decode_0x0c(data).items():
+            for idx, (clicked, value, lines) in sfl.decode_0x0c(data).items():
+                name = " ".join(part for part in lines if part)
                 label = f"Independent{idx}" + (f" ({name})" if name else "")
-                show(label, "ON" if state else "off")
+                show(label, f"{'ON' if clicked else 'off'} value={value}")
         elif obj_type == 0x16:
             flags = sfl.decode_0x16_indicators(data)
             if flags["solo"] is not None:
-                show("Solo", "ON" if flags["solo"] else "off")
+                show("Solo", flags["solo"].upper())
             if flags["blackout"] is not None:
-                show("BlackOut", "ON" if flags["blackout"] else "off")
+                show("BlackOut", flags["blackout"].upper())
         elif obj_type == 0x0f:
             all_modes = sfl.decode_0x0f_all_modes(data)
             if all_modes is not None:

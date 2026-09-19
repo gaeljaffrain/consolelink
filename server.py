@@ -62,7 +62,7 @@ state = {
     "independent2": None,
     "independent1_clicked": None,  # None until the first type=0x0c message; then True/False -- a
     "independent2_clicked": None,  # separate bit from the value above (RE notes Part 39)
-    "solo": None,  # None until the first type=0x16 message; then True/False (RE notes Part 29)
+    "solo": None,  # None until the first type=0x16 message; then "on"/"off"/"blinking" (RE notes Part 29/38/43)
     "blackout": None,
     "last_update": 0.0,
 }

@@ -79,17 +79,17 @@
   </div>
 
   <div class="section section-row" id="section-INT A">
-    <div class="section-title">INT A <span class="live-badge" style="display:none">LIVE</span></div>
+    <div class="section-title">INT A <span class="live-badge" style="display:none">Active</span></div>
     <div class="fader-row" id="faders-INT A"></div>
   </div>
 
   <div class="section section-row" id="section-INT B">
-    <div class="section-title">INT B <span class="live-badge" style="display:none">LIVE</span></div>
+    <div class="section-title">INT B <span class="live-badge" style="display:none">Active</span></div>
     <div class="fader-row" id="faders-INT B"></div>
   </div>
 
   <div class="section section-row" id="section-DEVICE INT">
-    <div class="section-title">INT DEV <span class="live-badge" style="display:none">LIVE</span></div>
+    <div class="section-title">INT DEV <span class="live-badge" style="display:none">Active</span></div>
     <div class="fader-row" id="faders-DEVICE INT"></div>
   </div>
 
@@ -126,12 +126,17 @@ function pctLabel(v) {
   return p === 100 ? "F" : String(p);
 }
 
-function setFader(el, value) {
+// hideZero: for the 24-fader INT A/B/DEV rows, a 0 value is left blank rather than printed
+// as "0" -- with 24 columns per row, scanning for the nonzero ones (which dimmer/device is
+// actually on) is much faster when the many zeros don't visually compete with them. Master/
+// Bumps/Independents always show their number, even at 0 -- there's only one of each, so
+// there's no scanning problem to solve, and always-blank-at-0 would just look broken there.
+function setFader(el, value, hideZero) {
   if (!el) return;
   const fill = el.querySelector(".fill");
   const val = el.querySelector(".val");
   fill.style.height = pct(value) + "%";
-  val.textContent = pctLabel(value);
+  val.textContent = (hideZero && value === 0) ? "" : pctLabel(value);
   el.classList.toggle("nonzero", value > 0);
 }
 
@@ -146,12 +151,15 @@ function setName(container, lines) {
 }
 
 // state is null until the first type=0x16 message arrives (still "placeholder" until then),
-// then true/false. keepLabel is for SOLO/BLACKOUT, whose .light already has a permanent
-// text label baked into the HTML -- skip overwriting it with the "?"/empty placeholder text.
+// then "on"/"off"/"blinking" (RE notes Part 43 -- the console's own indicator LEDs are driven
+// by a pair of colors on the wire, and "blinking" is just the case where that pair disagrees).
+// keepLabel is for SOLO/BLACKOUT, whose .light already has a permanent text label baked into
+// the HTML -- skip overwriting it with the "?"/empty placeholder text.
 function setIndicator(el, state, keepLabel) {
   if (!el) return;
   el.classList.toggle("placeholder", state === null);
-  el.classList.toggle("on", state === true);
+  el.classList.toggle("on", state === "on");
+  el.classList.toggle("blinking", state === "blinking");
   if (!keepLabel) {
     el.querySelector(".light").textContent = state === null ? "?" : "";
   }
@@ -165,7 +173,7 @@ function setIndicator(el, state, keepLabel) {
 // `clicked ? value : 0`, the same "stored level only reaches output while engaged" pattern
 // already confirmed for Bump buttons (Part 16), not the raw value unconditionally.
 function setIndependent(faderEl, btnEl, value, clicked, lines) {
-  setFader(faderEl, (value === null || clicked !== true) ? 0 : value);
+  setFader(faderEl, (value === null || clicked !== true) ? 0 : value, true);
   const known = clicked !== null;
   btnEl.classList.toggle("placeholder", !known);
   btnEl.classList.toggle("on", known && clicked === true);
@@ -192,7 +200,7 @@ function render(state) {
     document.getElementById("section-" + mode).classList.toggle("dim", !isActive);
     for (let i = 1; i <= 24; i++) {
       const el = document.getElementById("fader-" + mode + "-" + i);
-      setFader(el, state.faders[mode][i - 1]);
+      setFader(el, state.faders[mode][i - 1], true);
       el.querySelector(".number").textContent = String(i);
       setName(el, state.labels?.[mode]?.[i]);
     }

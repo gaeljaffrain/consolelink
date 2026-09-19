@@ -17,6 +17,7 @@
   --bumps: #808080;
   --greenfader: #d3f8b5;
   --whitebutton: #ffffff;
+  --blink-duration: 0.5s;
 }
 /* Below this window width, each 24-fader row wraps into two rows of 12 (see the
    @media rule right after .fader-row's definition, below, for the actual breakpoint --
@@ -116,7 +117,7 @@ h1 {
   gap: 14px;
 }
 .section.section-row .section-title {
-  flex: 0 0 60px;
+  flex: 0 0 46px;
   flex-direction: column;
   align-items: flex-start;
   gap: 3px;
@@ -391,6 +392,20 @@ h1 {
   color: var(--text);
   box-shadow: 0 0 10px var(--master);
 }
+/* Blinking: hard-alternates between the button's own on-color and the inactive background,
+   matching the real console's flashing LED (RE notes Part 43) -- e.g. Solo blinks white/off
+   while a Bump button isolates a channel; BlackOut blinks blue/off when Master is pulled
+   below full while BlackOut itself is off. steps(1) for a discrete flash, not a smooth fade. */
+@keyframes blink-solo {
+  0%, 49%   { background: var(--whitebutton); border-color: var(--bumps); color: var(--darktext); box-shadow: 0 0 10px var(--bumps); }
+  50%, 100% { background: var(--grid); border-color: var(--grid); color: var(--dim); box-shadow: none; }
+}
+@keyframes blink-blackout {
+  0%, 49%   { background: var(--master); border-color: var(--master); color: var(--text); box-shadow: 0 0 10px var(--master); }
+  50%, 100% { background: var(--grid); border-color: var(--grid); color: var(--dim); box-shadow: none; }
+}
+#ind-solo.blinking .light { animation: blink-solo var(--blink-duration) steps(1) infinite; }
+#ind-blackout.blinking .light { animation: blink-blackout var(--blink-duration) steps(1) infinite; }
 /* IND 1/2's button shows the Independent's name as 3 lines, same as the fader rows (RE notes
    Part 41/42), instead of SOLO/BLACKOUT's single static label -- override the centered
    single-line layout inherited from .ind-button .light with a column of small rows. */

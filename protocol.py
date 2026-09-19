@@ -341,25 +341,40 @@ def decode_0x16_indicators(data):
     indicator blocks, confirmed live against two independent isolated single-button captures
     (traces/capture_solo_blackout.log, cross-checked against traces/capture_ind_blackout_solo.log;
     RE notes Part 29 Sec.122-124):
-      - offset 517-522: Solo.     `ff`*6 = on, anything else = off.
-      - offset 523-528: BlackOut. `00 00 ff 00 00 ff` = on, anything else = off.
-    "Anything else" (not just the specific `0a`*6 resting/filler value seen in every live
-    toggle test so far) counts as off: a console that's never had this button touched since
-    power-on could plausibly rest at some other byte pattern never captured live, and there's
-    no evidence either indicator has more than two real states (RE notes Part 32). Everything
-    else in this 637-byte payload remains undecoded. Returns
-    {"solo": bool|None, "blackout": bool|None} -- None only if data is too short to contain
-    these offsets at all.
+      - offset 517-522: Solo.     `ff ff ff` / `ff ff ff` (RGB white, both halves equal) = on.
+      - offset 523-528: BlackOut. `00 00 ff` / `00 00 ff` (RGB blue,  both halves equal) = on.
+    Each 6-byte block is two consecutive 3-byte RGB colors -- the button's own LED is
+    literally driven by this pair, alternating between them at a fixed local rate. A steady
+    (non-blinking) LED is just the degenerate case where both halves happen to be the same
+    color (`0a 0a 0a` / `0a 0a 0a`, a dim gray, is the observed resting/idle color for both
+    indicators -- RE notes Part 32). Confirmed against real bytes (not just the summary
+    above) from traces/trace_blink_bump2_24_solo.pcapng: pressing a Bump button while Solo is
+    active blinks Solo between its on-color and black, `ff ff ff` / `00 00 00` (RE notes Part
+    38 Sec.145) -- i.e. the two halves genuinely differ on the wire exactly while the real
+    console shows that indicator visibly flashing, and are equal at every other sample in that
+    capture. The same per-fader Bump-LED blink block (`decode_0x16_bump_catch`, Part 37-38)
+    fits the identical pattern one level down: its confirmed `(0x46, 0x0a)` blink pair is just
+    the R channel of two dim, unequal reds (G/B stay 0), vs. equal R when solid/tracking.
+    So "blinking" is decoded generically as "the two halves of this button's block don't
+    match", not from a hardcoded blink-specific byte pattern -- this correctly flags BlackOut
+    blinking too (e.g. the console's own "Master pulled down while BlackOut is off" warning
+    blink) even though BlackOut's own blink colors have never been directly observed on the
+    wire; only Solo's blink has (see above). Returns {"solo": "on"|"off"|"blinking"|None,
+    "blackout": ...} -- None only if data is too short to contain these offsets at all.
     """
-    def read(lo, hi, on_pattern):
+    def read(lo, hi, on_color):
         chunk = data[lo:hi]
         if len(chunk) < hi - lo:
             return None
-        return chunk == on_pattern
+        mid = lo + (hi - lo) // 2
+        half1, half2 = data[lo:mid], data[mid:hi]
+        if half1 != half2:
+            return "blinking"
+        return "on" if half1 == on_color else "off"
 
     return {
-        "solo": read(517, 523, b"\xff" * 6),
-        "blackout": read(523, 529, bytes.fromhex("0000ff0000ff")),
+        "solo": read(517, 523, b"\xff\xff\xff"),
+        "blackout": read(523, 529, bytes.fromhex("0000ff")),
     }
 
 
