@@ -124,11 +124,12 @@ def handle_payload(obj_type, data):
     elif obj_type == 0x09:
         labels = sfl.decode_0x09_labels(data)
         if labels:
-            received = [(family, index, lines)
-                        for family, entries in labels.items()
-                        for index, lines in entries.items()]
-            for family, index, lines in received:
-                print(f"[label] {family} {index}: {lines!r}", file=sys.stderr)
+            if DEBUG:
+                received = [(family, index, lines)
+                            for family, entries in labels.items()
+                            for index, lines in entries.items()]
+                for family, index, lines in received:
+                    print(f"[label] {family} {index}: {lines!r}", file=sys.stderr)
             with state_condition:
                 for mode in FADER_MODES:
                     state["labels"][mode].update(labels.get(mode, {}))
