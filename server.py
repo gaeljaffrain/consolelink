@@ -3,7 +3,7 @@
 Minimal local web app showing live console fader values.
 
 Run:
-    python3 consolelink/server.py
+    python3 consolelink/server.py [--debug] [--capture PATH]
 Then open http://localhost:8765 in a browser, or http://<this Mac's LAN IP>:8765 from
 another device on the same network (e.g. `ipconfig getifaddr en0` for the IP; macOS will
 prompt to allow incoming connections for python3 the first time a LAN client connects).
@@ -26,6 +26,7 @@ which mode is currently active on the console, per RE notes Part 15), plus
 Master and Bumps. Independent 1/2, per the manual, are toggle/bump buttons
 (not faders) -- shown as lights, decoded from type=0x0c (RE notes Part 28).
 """
+import argparse
 import json
 import os
 import sys
@@ -41,11 +42,11 @@ HOST = "0.0.0.0"  # listen on all interfaces, not just loopback, so LAN devices 
 PORT = 8765
 STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Same raw-capture mechanism as ../smartfade_listen.py (see its module docstring) -- set
-# SMARTFADE_CAPTURE=<path> to log every message (known or not) with full hex + a timestamp,
-# for comparing byte-for-byte against a CLI capture when something behaves differently here
-# than in the terminal tool despite sharing the same protocol code.
-CAPTURE_PATH = os.environ.get("SMARTFADE_CAPTURE", "")
+# Same raw-capture mechanism as listen.py (see its module docstring) -- set via --capture PATH
+# to log every message (known or not) with full hex + a timestamp, for comparing byte-for-byte
+# against a CLI capture when something behaves differently here than in the terminal tool
+# despite sharing the same protocol code. Set from args in main().
+CAPTURE_PATH = ""
 
 FADER_MODES = ("INT A", "INT B", "DEVICE INT")  # modes with a decoded live fader bank (type=0x0e/0x0f)
 ALL_FADER_MODES = FADER_MODES + ("PARAM 1", "PARAM 2", "MEMS")  # every mode type=0x17 can report (RE notes Part 44)
@@ -76,13 +77,13 @@ def update_state(**kwargs):
         state["last_update"] = time.time()
         state_condition.notify_all()
 
-# Off by default -- run with SMARTFADE_DEBUG=1 to get per-control change logging (which
-# control changed, when, to what) plus a liveness heartbeat and visibility into any
-# announce/ack handshake failures. This is what found the decode_announce stride bug
-# (Part 26 of the RE notes) and is worth keeping around for the next time something looks
-# wrong: it distinguishes "nothing arrived on the wire" from "arrived but decoded/rendered
-# wrong" far faster than guessing.
-DEBUG = os.environ.get("SMARTFADE_DEBUG", "") not in ("", "0")
+# Off by default -- run with --debug to get per-control change logging (which control
+# changed, when, to what) plus a liveness heartbeat and visibility into any announce/ack
+# handshake failures. This is what found the decode_announce stride bug (Part 26 of the RE
+# notes) and is worth keeping around for the next time something looks wrong: it
+# distinguishes "nothing arrived on the wire" from "arrived but decoded/rendered wrong" far
+# faster than guessing. Set from args in main().
+DEBUG = False
 _last_logged_master = None
 _last_logged_faders = {mode: [0] * 24 for mode in FADER_MODES}
 _t_start = time.time()
@@ -475,6 +476,19 @@ class QuietThreadingHTTPServer(ThreadingHTTPServer):
 
 
 def main():
+    global DEBUG, CAPTURE_PATH
+    parser = argparse.ArgumentParser(description="Local web app showing live console fader values.")
+    parser.add_argument("--debug", action="store_true",
+                         help="Per-control change logging to stderr, plus a liveness "
+                              "heartbeat and handshake diagnostics.")
+    parser.add_argument("--capture", metavar="PATH", default="",
+                         help="Append every message (decoded or not) as a timestamped hex "
+                              "line to PATH, for comparing against a packet capture when "
+                              "something behaves unexpectedly.")
+    args = parser.parse_args()
+    DEBUG = args.debug
+    CAPTURE_PATH = args.capture
+
     stop_event = threading.Event()
     # Not a daemon thread: daemon threads are hard-killed at interpreter exit with no
     # chance to run their `finally` cleanup, which is exactly what would leave the USB

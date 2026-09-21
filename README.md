@@ -14,11 +14,12 @@ Built from the reverse-engineered wire protocol documented in
 | [`listen.py`](listen.py) | Terminal tool — connects and prints every control change live until Ctrl+C. |
 | [`server.py`](server.py) | Local web app — polls the console in a background thread and serves [`index.html`](index.html) over Server-Sent Events, so a browser tab shows live values. |
 | [`index.html`](index.html) | Static single-page UI for `server.py`: fader bars (INT A / INT B / DEVICE INT), Master, Bumps, Independents, Solo/BlackOut. |
+| [`requirements.txt`](requirements.txt) | Python package dependencies (`pip3 install -r requirements.txt`). |
 
 ## Requirements
 
 - Python 3
-- [`pyusb`](https://pypi.org/project/pyusb/) (`pip3 install pyusb`)
+- [`pyusb`](https://pypi.org/project/pyusb/) -- `pip3 install -r requirements.txt`
 - A libusb backend (e.g. `brew install libusb` on macOS)
 - The console connected over USB and powered on
 
@@ -32,7 +33,7 @@ works out of the box for a user-space process).
 **Terminal live printer:**
 
 ```
-python3 listen.py
+python3 listen.py [--capture PATH]
 ```
 
 Prints each control's name and value the moment it changes. Ctrl+C to stop.
@@ -40,18 +41,20 @@ Prints each control's name and value the moment it changes. Ctrl+C to stop.
 **Web app:**
 
 ```
-python3 server.py
+python3 server.py [--debug] [--capture PATH]
 ```
 
 Then open http://localhost:8765. The page updates live as controls move; it
 also auto-reconnects if the console is unplugged and replugged.
 
-**Environment variables** (both tools):
+**Command-line options:**
 
-| Variable | Effect |
-|---|---|
-| `SMARTFADE_DEBUG=1` | Per-control change logging to stderr, plus a liveness heartbeat and handshake diagnostics. |
-| `SMARTFADE_CAPTURE=<path>` | Append every message (decoded or not) as a timestamped hex line to `<path>`, for comparing against a packet capture when something behaves unexpectedly. |
+| Flag | Tool(s) | Effect |
+|---|---|---|
+| `--debug` | `server.py` | Per-control change logging to stderr, plus a liveness heartbeat and handshake diagnostics. |
+| `--capture PATH` | both | Append every message (decoded or not) as a timestamped hex line to `PATH`, for comparing against a packet capture when something behaves unexpectedly. |
+
+Run either tool with `--help` for the full option list.
 
 ## How it works
 

@@ -6,7 +6,7 @@ type=0x0e/0x17/... decoding). This file is just the terminal UI: connect, print 
 changes, live, until Ctrl+C.
 """
 
-import os
+import argparse
 import sys
 import time
 
@@ -15,17 +15,23 @@ import usb.util
 
 import protocol as sfl
 
-# Set SMARTFADE_CAPTURE=<path> to also log every message (known or not) with FULL raw hex
-# and a timestamp to a plain-text file, in addition to the normal decoded live-print below.
-# This is for finding not-yet-decoded controls (buttons, etc) without a Wireshark/USBPcap
-# capture: run `SMARTFADE_CAPTURE=traces/capture_x.log python3 consolelink/listen.py`, press
+# Pass --capture PATH to also log every message (known or not) with FULL raw hex and a
+# timestamp to a plain-text file, in addition to the normal decoded live-print below. This
+# is for finding not-yet-decoded controls (buttons, etc) without a Wireshark/USBPcap
+# capture: run `python3 consolelink/listen.py --capture traces/capture_x.log`, press
 # whatever's being investigated, Ctrl+C, then read the log back like a pcap decode. The normal
 # live-print path already shows undecoded types but truncates to 16 bytes and skips known
 # types (0x0e, 0x17, ...) entirely -- this captures everything, untruncated.
-CAPTURE_PATH = os.environ.get("SMARTFADE_CAPTURE", "")
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Terminal live printer for the console.")
+    parser.add_argument("--capture", metavar="PATH", default="",
+                         help="Append every message (decoded or not) as a timestamped hex "
+                              "line to PATH, for finding not-yet-decoded controls.")
+    args = parser.parse_args()
+    capture_path = args.capture
+
     dev = usb.core.find(idVendor=sfl.VENDOR_ID, idProduct=sfl.PRODUCT_ID)
     if dev is None:
         print(f"No device found with VID={sfl.VENDOR_ID:04x} PID={sfl.PRODUCT_ID:04x}."
@@ -66,9 +72,9 @@ def main():
     last_report = time.time()
     t_start = time.time()
 
-    capture_f = open(CAPTURE_PATH, "a") if CAPTURE_PATH else None
+    capture_f = open(capture_path, "a") if capture_path else None
     if capture_f:
-        print(f"Raw capture logging to {CAPTURE_PATH} (SMARTFADE_CAPTURE)")
+        print(f"Raw capture logging to {capture_path} (--capture)")
 
     def log_capture(kind, obj_type, data):
         if capture_f:
