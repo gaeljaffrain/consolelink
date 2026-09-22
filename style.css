@@ -258,7 +258,7 @@ h1 {
   font-size: 10px;
   white-space: normal;
 }
-/* The console's own name field is 3 short lines (6/6/5 chars, RE notes Part 41) -- .name is
+/* The console's own name field is 3 short lines (6/6/5 chars) -- .name is
    just a column of 3 .name-line rows, each rendered exactly as the console lays it out
    rather than word-wrapping one joined string. Always exactly 3 rows (blank ones included),
    so every fader column's name area is the same height regardless of how many lines that
@@ -396,7 +396,7 @@ h1 {
   box-shadow: 0 0 10px var(--master);
 }
 /* Blinking: hard-alternates between the button's own on-color and the inactive background,
-   matching the real console's flashing LED (RE notes Part 43) -- e.g. Solo blinks white/off
+   matching the real console's flashing LED -- e.g. Solo blinks white/off
    while a Bump button isolates a channel; BlackOut blinks blue/off when Master is pulled
    below full while BlackOut itself is off. steps(1) for a discrete flash, not a smooth fade. */
 @keyframes blink-solo {
@@ -409,8 +409,8 @@ h1 {
 }
 #ind-solo.blinking .light { animation: blink-solo var(--blink-duration) steps(1) infinite; }
 #ind-blackout.blinking .light { animation: blink-blackout var(--blink-duration) steps(1) infinite; }
-/* IND 1/2's button shows the Independent's name as 3 lines, same as the fader rows (RE notes
-   Part 41/42), instead of SOLO/BLACKOUT's single static label -- override the centered
+/* IND 1/2's button shows the Independent's name as 3 lines, same as the fader rows,
+   instead of SOLO/BLACKOUT's single static label -- override the centered
    single-line layout inherited from .ind-button .light with a column of small rows. */
 #ind-1 .light,
 #ind-2 .light {

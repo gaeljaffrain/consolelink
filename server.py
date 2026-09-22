@@ -15,16 +15,16 @@ plain http.server serves a static page over Server-Sent Events (GET
 decoded, rather than the page polling and silently skipping whatever changed
 between polls.
 
-Reuses the USB protocol implementation from protocol.py (Parts 6-15 of the
-RE notes) rather than re-deriving it -- see that module's docstring for the
+Reuses the USB protocol implementation from protocol.py rather than
+re-deriving it -- see that module's docstring for the
 wire-protocol details (idle poll, announce/ack handshake, request_type(),
 type=0x0e/0x17 decoding).
 
 Shows: Fader 1-24 under each of the three known fader modes (INT A, INT B,
 DEVICE INT -- these are the SAME 24 physical faders, re-labeled depending on
-which mode is currently active on the console, per RE notes Part 15), plus
-Master and Bumps. Independent 1/2, per the manual, are toggle/bump buttons
-(not faders) -- shown as lights, decoded from type=0x0c (RE notes Part 28).
+which mode is currently active on the console), plus Master and Bumps.
+Independent 1/2, per the manual, are toggle/bump buttons (not faders) --
+shown as lights, decoded from type=0x0c.
 """
 import argparse
 import json
@@ -49,7 +49,7 @@ STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
 CAPTURE_PATH = ""
 
 FADER_MODES = ("INT A", "INT B", "DEVICE INT")  # modes with a decoded live fader bank (type=0x0e/0x0f)
-ALL_FADER_MODES = FADER_MODES + ("PARAM 1", "PARAM 2", "MEMS")  # every mode type=0x17 can report (RE notes Part 44)
+ALL_FADER_MODES = FADER_MODES + ("PARAM 1", "PARAM 2", "MEMS")  # every mode type=0x17 can report
 
 state = {
     "connected": False,
@@ -60,11 +60,11 @@ state = {
     "independent_labels": {},
     "bumps": 0,
     "master": 0,
-    "independent1": None,  # None until the first type=0x0c message; then a raw 0-255 value (RE notes Part 28/39)
+    "independent1": None,  # None until the first type=0x0c message; then a raw 0-255 value
     "independent2": None,
     "independent1_clicked": None,  # None until the first type=0x0c message; then True/False -- a
-    "independent2_clicked": None,  # separate bit from the value above (RE notes Part 39)
-    "solo": None,  # None until the first type=0x16 message; then "on"/"off"/"blinking" (RE notes Part 29/38/43)
+    "independent2_clicked": None,  # separate bit from the value above
+    "solo": None,  # None until the first type=0x16 message; then "on"/"off"/"blinking"
     "blackout": None,
     "last_update": 0.0,
 }
@@ -79,10 +79,10 @@ def update_state(**kwargs):
 
 # Off by default -- run with --debug to get per-control change logging (which control
 # changed, when, to what) plus a liveness heartbeat and visibility into any announce/ack
-# handshake failures. This is what found the decode_announce stride bug (Part 26 of the RE
-# notes) and is worth keeping around for the next time something looks wrong: it
-# distinguishes "nothing arrived on the wire" from "arrived but decoded/rendered wrong" far
-# faster than guessing. Set from args in main().
+# handshake failures. This is what found the decode_announce stride bug, and is worth keeping
+# around for the next time something looks wrong: it distinguishes "nothing arrived on the
+# wire" from "arrived but decoded/rendered wrong" far faster than guessing. Set from args in
+# main().
 DEBUG = False
 _last_logged_master = None
 _last_logged_faders = {mode: [0] * 24 for mode in FADER_MODES}
@@ -149,9 +149,8 @@ def handle_payload(obj_type, data):
         if 2 in entries:
             update["independent2_clicked"] = entries[2][0]
             update["independent2"] = entries[2][1]
-        # entries[n][2] is [line1, line2, line3] (same 3-line shape decode_0x09_labels uses,
-        # RE notes Part 42) -- kept as-is, not joined, so the UI can show 3 lines like the
-        # fader rows do.
+        # entries[n][2] is [line1, line2, line3] (same 3-line shape decode_0x09_labels uses)
+        # -- kept as-is, not joined, so the UI can show 3 lines like the fader rows do.
         if 1 in entries and any(entries[1][2]):
             update.setdefault("independent_labels", {})
             update["independent_labels"][1] = entries[1][2]
@@ -180,7 +179,7 @@ def handle_payload(obj_type, data):
     # Full faders snapshot (3x24) for all three fader modes at once, not just the currently active one.
     elif obj_type == 0x0f:
         # Unlike 0x0e (mode-agnostic -- only ever reports whichever fader mode is currently
-        # active), this holds all three fader-mode banks at once (RE notes Part 33), so the
+        # active), this holds all three fader-mode banks at once, so the
         # OTHER two modes' rows (the dimmed ones in the UI) get real data too, not just
         # whatever they were last set to while they happened to be active.
         all_modes = sfl.decode_0x0f_all_modes(data)
@@ -233,12 +232,12 @@ def poll_forever(stop_event):
         # Proactively ask for the current fader MODE before asking for fader/master/bumps
         # state -- type=0x0e is mode-agnostic on the wire (it just reports whatever's on the
         # physical faders right now, for whichever mode happens to be active), and until a
-        # real type=0x17 is seen, state["fader_mode"] defaults to "INT A" (RE notes Part 15).
+        # real type=0x17 is seen, state["fader_mode"] defaults to "INT A".
         # Asking for 0x0e first, before knowing the true mode, silently mislabeled its data
         # as INT A whenever the console was actually in INT B or DEVICE INT at connect (found
-        # live: "only intensity A are read at startup" -- Part 32). request_type() works for
+        # live: "only intensity A are read at startup"). request_type() works for
         # 0x17 exactly like it does for 0x0e, returning the true current mode on demand (not
-        # just on a change, unlike the passive announce it was documented as in Part 15) --
+        # just on a change, unlike the passive announce) --
         # confirmed live with debug_ask_0x17.py against a console sitting in DEVICE INT mode.
         mode_type, mode_data = link.request_type(0x17)
         if mode_type is not None:
@@ -249,11 +248,11 @@ def poll_forever(stop_event):
 
         # Proactively ask for current fader/master/bumps state instead of relying on the
         # console's own unprompted announce, which on macOS loses a race against the OS's own
-        # automatic USB HID driver probing almost every time (RE notes Part 30 Sec.129) --
-        # confirmed live that the console replies with current data to this ack sequence even
-        # without ever having announced it first (Part 31). This is what actually fixes
-        # "faders don't show up without touching a control," reliably, independent of any
-        # timing race. Sent after the mode request above, so it gets bucketed correctly.
+        # automatic USB HID driver probing almost every time -- confirmed live that the
+        # console replies with current data to this ack sequence even without ever having
+        # announced it first. This is what actually fixes "faders don't show up without
+        # touching a control," reliably, independent of any timing race. Sent after the mode
+        # request above, so it gets bucketed correctly.
         obj_type, data = link.request_type(0x0e)
         if obj_type is not None:
             log_capture("requested", obj_type, data)
@@ -261,11 +260,11 @@ def poll_forever(stop_event):
         elif DEBUG:
             print("[webapp] proactive 0x0e request got no reply", file=sys.stderr)
 
-        # type=0x0f holds all three fader-mode banks at once (Part 33) -- this is what
-        # actually gets INT B/DEVICE INT populated on connect too, not just whichever mode
-        # happens to be active (found live: "only intensity A are read at startup" persisted
-        # even after Part 32's mode-ordering fix, because that fix only affects 0x0e, which is
-        # mode-agnostic by nature and structurally can't report a mode that isn't active).
+        # type=0x0f holds all three fader-mode banks at once -- this is what actually gets
+        # INT B/DEVICE INT populated on connect too, not just whichever mode happens to be
+        # active (found live: "only intensity A are read at startup" persisted even after the
+        # mode-ordering fix above, because that fix only affects 0x0e, which is mode-agnostic
+        # by nature and structurally can't report a mode that isn't active).
         all_type, all_data = link.request_type(0x0f)
         if all_type is not None:
             log_capture("requested", all_type, all_data)

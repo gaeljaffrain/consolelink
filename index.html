@@ -148,9 +148,9 @@ function setFader(el, value, hideZero) {
   el.classList.toggle("nonzero", value > 0);
 }
 
-// The console's own name field is 3 short lines (6/6/5 chars, RE notes Part 41), not one
-// long string -- render each on its own row exactly as the console lays it out, rather than
-// word-wrapping a joined string to whatever width this column happens to be.
+// The console's own name field is 3 short lines (6/6/5 chars), not one long string -- render
+// each on its own row exactly as the console lays it out, rather than word-wrapping a joined
+// string to whatever width this column happens to be.
 function setName(container, lines) {
   const lineEls = container.querySelectorAll(".name-line");
   for (let i = 0; i < lineEls.length; i++) {
@@ -159,8 +159,8 @@ function setName(container, lines) {
 }
 
 // state is null until the first type=0x16 message arrives (still "placeholder" until then),
-// then "on"/"off"/"blinking" (RE notes Part 43 -- the console's own indicator LEDs are driven
-// by a pair of colors on the wire, and "blinking" is just the case where that pair disagrees).
+// then "on"/"off"/"blinking" (the console's own indicator LEDs are driven by a pair of colors
+// on the wire, and "blinking" is just the case where that pair disagrees).
 // keepLabel is for SOLO/BLACKOUT, whose .light already has a permanent text label baked into
 // the HTML -- skip overwriting it with the "?"/empty placeholder text.
 function setIndicator(el, state, keepLabel) {
@@ -175,11 +175,11 @@ function setIndicator(el, state, keepLabel) {
 
 // IND 1/2 are a fader (live 0-255 value, like Master/Bumps) plus a click button showing the
 // Independent's patched name. `value` and `clicked` are two genuinely separate bits on the
-// wire (RE notes Part 39/40, confirmed against a real capture): `value` is a stored/preset
-// level that stays constant regardless of click state -- it does NOT drop to 0 on its own --
-// while `clicked` is whether that level is currently reaching output. So the bar shows
-// `clicked ? value : 0`, the same "stored level only reaches output while engaged" pattern
-// already confirmed for Bump buttons (Part 16), not the raw value unconditionally.
+// wire (confirmed against a real capture): `value` is a stored/preset level that stays
+// constant regardless of click state -- it does NOT drop to 0 on its own -- while `clicked`
+// is whether that level is currently reaching output. So the bar shows `clicked ? value : 0`,
+// the same "stored level only reaches output while engaged" pattern already confirmed for
+// Bump buttons, not the raw value unconditionally.
 function setIndependent(faderEl, btnEl, value, clicked, lines) {
   setFader(faderEl, (value === null || clicked !== true) ? 0 : value, true);
   const known = clicked !== null;

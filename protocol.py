@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Shared low-level protocol library for talking to the console over USB, reverse-engineered in
-../SmartFade_SmartSoft_reverse_engineering_notes.md. Used by both listen.py (a terminal live
-printer) and server.py (the web app) -- neither re-derives any of this, both just import it.
+Shared low-level protocol library for talking to the console over USB, reverse-engineered from
+captured SmartSoft <-> console traffic. Used by both listen.py (a terminal live printer) and
+server.py (the web app) -- neither re-derives any of this, both just import it.
 
 Opens the console over USB, claims the bulk vendor interface (interface 1), and speaks the
 real wire protocol confirmed against captured SmartSoft <-> console traffic:
@@ -10,8 +10,7 @@ real wire protocol confirmed against captured SmartSoft <-> console traffic:
   - Idle poll: a 12-byte header, 6x uint16 LE (msgType, payloadLen, state[4]),
     sent OUT with msgType=0, payloadLen=0, state=[0,0,0,0]. (NOT msgType=2 --
     that was an earlier, incorrect guess; a client that only ever sends
-    msgType=2 gets zero replies, matching the original failed experiment in
-    Part 4 of the RE notes.)
+    msgType=2 gets zero replies.)
   - The console replies with a 12-byte header too. If payloadLen>0, a second
     read on the same endpoint fetches exactly that many payload bytes.
   - When a control's value changes, the console doesn't just push the new
@@ -22,43 +21,43 @@ real wire protocol confirmed against captured SmartSoft <-> console traffic:
     by a plain msgType=0 poll -- only then does the console reply with the
     real data (payload type matching what was announced, wrapped in an IN
     header with msgType=3). This ack step is NOT optional -- confirmed from
-    real capture traces (RE notes, the tracec.pcapng excerpt used to work out
-    this handshake); skipping it and only ever polling with msgType=0 means
+    real capture traces (the tracec.pcapng excerpt used to work out this
+    handshake); skipping it and only ever polling with msgType=0 means
     the announce repeats forever and the real value is never delivered.
   - `ConsoleLink.request_type()` gets the same data on demand instead,
-    without waiting for the console to announce it first (RE notes Part 31)
-    -- confirmed to work for every type tried (0x0e/0x17/0x0f/0x0c/0x16),
-    and is what both apps actually use at connect time now (Part 34).
+    without waiting for the console to announce it first -- confirmed to
+    work for every type tried (0x0e/0x17/0x0f/0x0c/0x16), and is what both
+    apps actually use at connect time now.
 
 Decodes:
-  - type=0x0e (99 bytes): Fader 1-24, Bumps, Master (Part 8-9, confirmed
-    against real hardware across three separate captures). Mode-agnostic --
-    reports whatever's on a fader regardless of which fader mode is active
-    (Part 15): a fader's raw value means different things (an INT A level,
-    an INT B level, a device intensity, ...) depending on type=0x17 below.
+  - type=0x0e (99 bytes): Fader 1-24, Bumps, Master (confirmed against real
+    hardware across three separate captures). Mode-agnostic -- reports
+    whatever's on a fader regardless of which fader mode is active: a
+    fader's raw value means different things (an INT A level, an INT B
+    level, a device intensity, ...) depending on type=0x17 below.
   - type=0x0f (75 bytes): unlike 0x0e, holds all three fader-mode banks at
-    once (Part 33) -- `[header:1][INT A: 24][INT B: 24][DEVICE INT: 24]`.
-  - type=0x11 (209 bytes): Crossfader Live, Crossfader Next (Part 9).
+    once -- `[header:1][INT A: 24][INT B: 24][DEVICE INT: 24]`.
+  - type=0x11 (209 bytes): Crossfader Live, Crossfader Next.
   - type=0x15 (81 bytes): the console's two physical LCDs, verbatim ASCII --
     1 marker byte + 80 characters (2 displays x 2 lines x 20 chars). This is
-    also currently the only way to see the 3 wheels' live values (Part 11) --
-    they don't touch type=0x0e/0x11 at all, only this LCD text and a
+    also currently the only way to see the 3 wheels' live values -- they
+    don't touch type=0x0e/0x11 at all, only this LCD text and a
     correlated-but-undecoded type=0x16.
   - type=0x16 (637 bytes, mostly undecoded): bytes 517-528 are two adjacent
-    6-byte Solo/BlackOut indicator blocks (Part 29). Per-fader 6-byte blocks
-    starting at byte 2 (`2+6*(N-1)` / `5+6*(N-1)` for fader N, confirmed for
-    N=1/2/24, Part 37-38) are each fader's Bump-LED "catch" indicator --
-    fixed at (0x46, 0x0a) while that fader's Bump LED is blinking (unlatched
-    after a fader-mode switch), else tracks its live output 1:1.
+    6-byte Solo/BlackOut indicator blocks. Per-fader 6-byte blocks starting
+    at byte 2 (`2+6*(N-1)` / `5+6*(N-1)` for fader N, confirmed for
+    N=1/2/24) are each fader's Bump-LED "catch" indicator -- fixed at
+    (0x46, 0x0a) while that fader's Bump LED is blinking (unlatched after a
+    fader-mode switch), else tracks its live output 1:1.
   - type=0x17 (7 bytes): the fader-mode selector, all six modes (INT A/INT
-    B/DEVICE INT/PARAM 1/PARAM 2/MEMS, Part 15 + later confirmation) --
-    only fires unprompted on a mode CHANGE, but request_type() gets the
-    true current mode on demand regardless (Part 32).
+    B/DEVICE INT/PARAM 1/PARAM 2/MEMS) -- only fires unprompted on a mode
+    CHANGE, but request_type() gets the true current mode on demand
+    regardless.
   - type=0x18 (variable): the Device/Palette-Select row's resulting
-    selection state as `[count][ids...]`, not a raw button code (Part 13).
-  - type=0x0c (85 bytes): Independent 1/2 name + on/off state (Part 28).
+    selection state as `[count][ids...]`, not a raw button code.
+  - type=0x0c (85 bytes): Independent 1/2 name + on/off state.
   - Anything else: not decoded here (most buttons, wheels' raw deltas,
-    curves, names/groups/cues -- see the RE notes for what's been tried).
+    curves, names/groups/cues).
 """
 
 import struct
@@ -74,24 +73,22 @@ HEADER_LEN = 12
 IO_TIMEOUT_MS = 200
 
 # Message types confirmed to exist on the wire (from pcap captures and/or live sessions) but
-# not yet decoded -- not fader/crossfader data, safe to ignore for fader testing. See "Known
-# vs unknown" sections of the RE notes (Parts 6-9) for what's been tried.
+# not yet decoded -- not fader/crossfader data, safe to ignore for fader testing.
 # 0x00: constant ~195-byte payload, unrelated to any specific control (seen live, not yet in
 #       any pcap capture) -- possibly a periodic status/heartbeat block.
-# 0x0d: correlated sibling of 0x0e (Part 7 Sec.53), ~1026 bytes -- still not decoded (0x0f,
-#       its other sibling, IS decoded: it's the same per-fader data as 0x0d but for all three
-#       fader modes at once rather than just the active one, see decode_0x0f_all_modes / Part 33
-#       -- 0x0d is presumably a similarly richer/differently-scaled version, not yet worked out).
+# 0x0d: correlated sibling of 0x0e, ~1026 bytes -- still not decoded (0x0f, its other sibling,
+#       IS decoded: it's the same per-fader data as 0x0d but for all three fader modes at once
+#       rather than just the active one, see decode_0x0f_all_modes -- 0x0d is presumably a
+#       similarly richer/differently-scaled version, not yet worked out).
 # 0x10: ~1026 bytes, same data[0]=0x04 header convention as 0x0d -- likely a sibling of 0x11
 #       (crossfaders) the same way 0x0d is a sibling of 0x0e. Seen live, not yet in a pcap capture.
 # 0x16: ~637-642 byte full-table dump, correlated with wheel moves and occasional full
-#       refreshes; likely a live RGB-ish color-preview value (Part 11 Sec.71), mostly not
-#       decoded -- type=0x15 already gives an exact, plain-text readout of whatever a wheel is
-#       adjusting. EXCEPTIONS: bytes 517-528 are decoded (decode_0x16_indicators, Part 29) --
-#       two adjacent 6-byte Solo/BlackOut indicator blocks (Solo also has a confirmed distinct
-#       "blinking" pattern, Part 38, not yet wired into decode_0x16_indicators). Each fader's
-#       2-byte Bump-LED blink/catch indicator (decode_0x16_bump_catch, Part 37-38) lives at
-#       `2+6*(N-1)` / `5+6*(N-1)`.
+#       refreshes; likely a live RGB-ish color-preview value, mostly not decoded -- type=0x15
+#       already gives an exact, plain-text readout of whatever a wheel is adjusting.
+#       EXCEPTIONS: bytes 517-528 are decoded (decode_0x16_indicators) -- two adjacent 6-byte
+#       Solo/BlackOut indicator blocks (Solo also has a confirmed distinct "blinking" pattern,
+#       not yet wired into decode_0x16_indicators). Each fader's 2-byte Bump-LED blink/catch
+#       indicator (decode_0x16_bump_catch) lives at `2+6*(N-1)` / `5+6*(N-1)`.
 KNOWN_UNDECODED_TYPES = {0x00, 0x0d, 0x10}
 
 
@@ -154,8 +151,8 @@ def decode_0x0e(data):
 def decode_0x0e_full(data):
     """Full snapshot decode of type=0x0e: ALL 24 fader values (zero included) + bumps + master.
 
-    sfl.decode_0x0e (in ../smartfade_listen.py) deliberately omits zero entries -- that's the
-    right behaviour for its terminal printer (only print what changed). But type=0x0e is a full
+    decode_0x0e() above deliberately omits zero entries -- that's the right behaviour for a
+    terminal printer that only shows what changed. But type=0x0e is a full
     snapshot every time, not a delta: a fader that's been moved all the way down to 0 legitimately
     has nothing to report for that slot. A stateful client that only applies present keys (as an
     earlier version of this file did) never resets that slot back to 0 -- the bar gets stuck at
@@ -194,8 +191,8 @@ INTENSITY_SUBMODE_NAMES = {0: "INT A", 1: "INT B", 2: "DEVICE INT"}
 def decode_0x17(data):
     """type=0x17 (7 bytes): the fader-mode selector. Only fires on change.
 
-    Two-field encoding (Part 15 confirmed data[4] for the intensity family;
-    a later capture cycling INT A -> INT B -> DEVICE INT -> PARAM 1 ->
+    Two-field encoding (data[4] was confirmed for the intensity family
+    first; a later capture cycling INT A -> INT B -> DEVICE INT -> PARAM 1 ->
     PARAM 2 -> MEMS -> INT A with nothing else touched, one button per ~2s,
     gave a clean single-bit-diff transition at every step and confirmed the
     rest):
@@ -221,7 +218,7 @@ def decode_0x17(data):
 
 
 def decode_0x18(data):
-    """type=0x18 (variable): [count][id, id, ...] = resulting Device/Palette-Select selection (Part 13)."""
+    """type=0x18 (variable): [count][id, id, ...] = resulting Device/Palette-Select selection."""
     if len(data) < 1:
         return None
     count = data[0]
@@ -290,14 +287,14 @@ def decode_0x09_labels(data):
 
 def decode_0x0f_all_modes(data):
     """type=0x0f (75 bytes): unlike type=0x0e (mode-agnostic -- only ever reports whichever
-    fader mode is CURRENTLY active, Part 15), this holds all three fader-mode banks
+    fader mode is CURRENTLY active), this holds all three fader-mode banks
     simultaneously. The console has to keep this internally regardless -- switching modes
     instantly redisplays a completely different set of 24 values, which couldn't happen if
     the non-active modes' values weren't stored somewhere. Layout: `[header:1][INT A: 24]
     [INT B: 24][DEVICE INT: 24][+2 more bytes, likely Bumps/Master -- not decoded here since
     type=0x0e already covers those]`. Confirmed live: set fader 1 to three distinct, known
     values across all three modes (39%/66%/21% -> raw 100/168/53) and found all three at
-    offsets 1, 25, 49 -- exactly 24 apart (RE notes Part 33).
+    offsets 1, 25, 49 -- exactly 24 apart.
     Returns {"INT A": [24 raw values], "INT B": [...], "DEVICE INT": [...]}, or None if data
     is too short.
     """
@@ -311,12 +308,11 @@ _0X0C_MARKER = bytes.fromhex("0001030600")
 
 
 def decode_0x0c(data):
-    """type=0x0c: Independent 1/2 name + click-state + live value table (RE notes Part 28,
-    corrected in Part 39 against a real capture with a non-full value, and Part 42 for the
-    name field's real structure).
+    """type=0x0c: Independent 1/2 name + click-state + live value table (corrected against a
+    real capture with a non-full value, and again for the name field's real structure).
 
     Each entry is `[clicked: 0x00/0x01][value: 0-255][marker: 00 01 03 06 00][name: 3 lines,
-    same 12+12+11-byte layout as type=0x09's NamedItem, Part 41]` -- 42 bytes per entry.
+    same 12+12+11-byte layout as type=0x09's NamedItem]` -- 42 bytes per entry.
     Originally the marker was thought to be 6 bytes (`ff 00 01 03 06 00`) with a single
     boolean byte before it -- that was `capture_ind1.log`'s single on/off press test, which
     coincidentally sat at a "full" value (0xff) the whole time, making the value byte look like
@@ -359,24 +355,23 @@ def decode_0x0c(data):
 
 
 def decode_0x16_indicators(data):
-    """type=0x16 (637 bytes, still mostly undecoded -- Part 11 Sec.71): two adjacent 6-byte
-    indicator blocks, confirmed live against two independent isolated single-button captures
-    (traces/capture_solo_blackout.log, cross-checked against traces/capture_ind_blackout_solo.log;
-    RE notes Part 29 Sec.122-124):
+    """type=0x16 (637 bytes, still mostly undecoded): two adjacent 6-byte indicator blocks,
+    confirmed live against two independent isolated single-button captures
+    (traces/capture_solo_blackout.log, cross-checked against traces/capture_ind_blackout_solo.log):
       - offset 517-522: Solo.     `ff ff ff` / `ff ff ff` (RGB white, both halves equal) = on.
       - offset 523-528: BlackOut. `00 00 ff` / `00 00 ff` (RGB blue,  both halves equal) = on.
     Each 6-byte block is two consecutive 3-byte RGB colors -- the button's own LED is
     literally driven by this pair, alternating between them at a fixed local rate. A steady
     (non-blinking) LED is just the degenerate case where both halves happen to be the same
     color (`0a 0a 0a` / `0a 0a 0a`, a dim gray, is the observed resting/idle color for both
-    indicators -- RE notes Part 32). Confirmed against real bytes (not just the summary
-    above) from traces/trace_blink_bump2_24_solo.pcapng: pressing a Bump button while Solo is
-    active blinks Solo between its on-color and black, `ff ff ff` / `00 00 00` (RE notes Part
-    38 Sec.145) -- i.e. the two halves genuinely differ on the wire exactly while the real
-    console shows that indicator visibly flashing, and are equal at every other sample in that
-    capture. The same per-fader Bump-LED blink block (`decode_0x16_bump_catch`, Part 37-38)
-    fits the identical pattern one level down: its confirmed `(0x46, 0x0a)` blink pair is just
-    the R channel of two dim, unequal reds (G/B stay 0), vs. equal R when solid/tracking.
+    indicators). Confirmed against real bytes (not just the summary above) from
+    traces/trace_blink_bump2_24_solo.pcapng: pressing a Bump button while Solo is active blinks
+    Solo between its on-color and black, `ff ff ff` / `00 00 00` -- i.e. the two halves
+    genuinely differ on the wire exactly while the real console shows that indicator visibly
+    flashing, and are equal at every other sample in that capture. The same per-fader Bump-LED
+    blink block (`decode_0x16_bump_catch`) fits the identical pattern one level down: its
+    confirmed `(0x46, 0x0a)` blink pair is just the R channel of two dim, unequal reds (G/B
+    stay 0), vs. equal R when solid/tracking.
     So "blinking" is decoded generically as "the two halves of this button's block don't
     match", not from a hardcoded blink-specific byte pattern -- this correctly flags BlackOut
     blinking too (e.g. the console's own "Master pulled down while BlackOut is off" warning
@@ -404,7 +399,7 @@ _0X16_BLINK_PAIR = (0x46, 0x0A)
 
 
 def decode_0x16_bump_catch(data, fader):
-    """type=0x16, per-fader 6-byte block (RE notes Part 37-38): the Bump LED for a fader
+    """type=0x16, per-fader 6-byte block: the Bump LED for a fader
     that's "unlatched" after a fader-mode switch -- i.e. its saved logical value doesn't match
     the physical fader position, so moving it has no effect on output until the physical
     position catches up. `fader` is 1-indexed (1-24, same convention as decode_0x0e's
@@ -491,7 +486,7 @@ class ConsoleLink:
     def write_payload(self, seq, obj_type, data=b""):
         """OUT payload framing: [seq:1][objLen:2 LE][type:1][data] -- companion to a
         msgType=1 write_header(1, 4 + len(data)) sent just before it (confirmed from real
-        SmartSoft traffic, RE notes Part 6 Sec.51 / Part 27 Sec.117)."""
+        SmartSoft traffic)."""
         payload = bytes([seq & 0xFF]) + struct.pack("<H", len(data)) + bytes([obj_type]) + data
         try:
             self.dev.write(self.ep_out.bEndpointAddress, payload, timeout=IO_TIMEOUT_MS)
@@ -504,17 +499,16 @@ class ConsoleLink:
 
     def send_gui_request(self, seq, subtype):
         """Send a type=0x27 GUI request OUT (msgType=1) -- real SmartSoft sends subtype=0x09
-        (version query) then subtype=0x07 (full show-catalog request) right after connecting
-        (RE notes Part 6 Sec.51). subtype=0x07's reply is a single huge type=0x28 announce
-        (191 entries in the traces this was found from) covering the static show catalog --
-        names, groups, cues, curves, current show/firmware info, and a few pieces of current
-        control state (Independents/Solo/BlackOut/fader mode/selection) that used to be sent
-        this way before Part 31's request_type() turned out to reach those directly and much
-        faster (Part 34). Kept here as a working, tested way to reach the *rest* of the
-        catalog (names/groups/cues/curves) for whenever that's actually needed -- not part of
-        either app's default startup flow anymore. The reply(ies) aren't read here -- the
-        caller's normal poll loop picks them up exactly like any other announce, since the
-        announce/ack handling is generic."""
+        (version query) then subtype=0x07 (full show-catalog request) right after connecting.
+        subtype=0x07's reply is a single huge type=0x28 announce (191 entries in the traces
+        this was found from) covering the static show catalog -- names, groups, cues, curves,
+        current show/firmware info, and a few pieces of current control state
+        (Independents/Solo/BlackOut/fader mode/selection) that used to be sent this way before
+        request_type() turned out to reach those directly and much faster. Kept here as a
+        working, tested way to reach the *rest* of the catalog (names/groups/cues/curves) for
+        whenever that's actually needed -- not part of either app's default startup flow
+        anymore. The reply(ies) aren't read here -- the caller's normal poll loop picks them
+        up exactly like any other announce, since the announce/ack handling is generic."""
         data = bytes([subtype, 0, 0])
         if not self.write_header(1, 4 + len(data)):
             return False
@@ -522,13 +516,13 @@ class ConsoleLink:
 
     def request_type(self, type_byte):
         """Proactively ask the console for the current value of a given object type, without
-        waiting for it to announce that type first (RE notes Part 31). Same ack sequence
-        normally sent only in response to a real type=0x28 announce (msgType=2 with
-        state[0]=type, then a plain poll) -- but the console replies with current data even
-        when it never announced this type first. Confirmed live for type=0x0e specifically:
-        this is what actually solves "fader/master/bumps don't show up without touching a
-        control" -- reliably, without depending on winning the OS-level race that makes the
-        console's own unprompted announce unreliable on macOS (Part 30 Sec.129).
+        waiting for it to announce that type first. Same ack sequence normally sent only in
+        response to a real type=0x28 announce (msgType=2 with state[0]=type, then a plain
+        poll) -- but the console replies with current data even when it never announced this
+        type first. Confirmed live for type=0x0e specifically: this is what actually solves
+        "fader/master/bumps don't show up without touching a control" -- reliably, without
+        depending on winning the OS-level race that makes the console's own unprompted
+        announce unreliable on macOS.
         Returns (obj_type, data), or (None, None) on any failure/timeout.
         """
         if not self.write_header(2, 0, (type_byte, 0, 0, 0)):

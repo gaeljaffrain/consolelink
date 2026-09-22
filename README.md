@@ -3,8 +3,14 @@
 Talk to an ETC SmartFade ML lighting console over USB and see its live state
 (faders, master, bumps, independents, solo/blackout) without SmartSoft.
 
-Built from the reverse-engineered wire protocol documented in
-[`../SmartFade_SmartSoft_reverse_engineering_notes.md`](../SmartFade_SmartSoft_reverse_engineering_notes.md).
+Built from a reverse-engineered wire protocol; see [`protocol.py`](protocol.py)'s
+module docstring for the details.
+
+The protocol was reverse-engineered by running the original SmartSoft software
+under Windows 10 against a SmartFade ML console, while capturing the USB
+traffic with Wireshark. Each capture isolated a single step (initial
+connection, moving one fader, pressing one button, etc.) so the resulting
+traces could be matched to a specific action.
 
 ## Contents
 
@@ -69,6 +75,9 @@ tools also proactively request the types they need at connect time
 the console's own unprompted announce loses a race against the OS's USB
 probing on connect.
 
-See `protocol.py`'s module docstring and the RE notes for the full
-message-type breakdown (which types are decoded, which are known-but-not-yet
-decoded, and why).
+See `protocol.py`'s module docstring for the full message-type breakdown
+(which types are decoded, which are known-but-not-yet decoded, and why).
+
+## License
+
+MIT -- see [`LICENSE`](LICENSE).

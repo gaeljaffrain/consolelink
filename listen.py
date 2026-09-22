@@ -141,8 +141,7 @@ def main():
     # Ask for the true current fader mode before asking for fader/master/bumps state --
     # type=0x0e is mode-agnostic on the wire, and until a real type=0x17 is seen the terminal
     # printer has no confirmed mode context either. request_type() works for 0x17 the same way
-    # it does for 0x0e (RE notes Part 32), unlike the passive announce (Part 15), which only
-    # ever fires on a change.
+    # it does for 0x0e, unlike the passive announce, which only ever fires on a change.
     mode_type, mode_data = link.request_type(0x17)
     if mode_type is not None:
         log_capture("requested", mode_type, mode_data)
@@ -150,29 +149,29 @@ def main():
 
     # Proactively ask for current fader/master/bumps state instead of relying on the
     # console's own unprompted announce, which on macOS loses a race against the OS's own
-    # automatic USB HID driver probing almost every time (RE notes Part 30 Sec.129) --
-    # confirmed live that the console replies with current data even without ever having
-    # announced it first (Part 31). Sent after the mode request above, so it gets bucketed
-    # correctly instead of being mislabeled under the assumed default (Part 32).
+    # automatic USB HID driver probing almost every time -- confirmed live that the console
+    # replies with current data even without ever having announced it first. Sent after the
+    # mode request above, so it gets bucketed correctly instead of being mislabeled under the
+    # assumed default.
     req_type, req_data = link.request_type(0x0e)
     if req_type is not None:
         log_capture("requested", req_type, req_data)
         handle_payload(req_type, req_data)
 
-    # type=0x0f holds all three fader-mode banks at once (Part 33) -- unlike 0x0e, this
-    # doesn't need the mode known ahead of time, and gets every mode's live values right away
-    # instead of just whichever mode happens to be active.
+    # type=0x0f holds all three fader-mode banks at once -- unlike 0x0e, this doesn't need the
+    # mode known ahead of time, and gets every mode's live values right away instead of just
+    # whichever mode happens to be active.
     all_type, all_data = link.request_type(0x0f)
     if all_type is not None:
         log_capture("requested", all_type, all_data)
         handle_payload(all_type, all_data)
 
-    # Independents and Solo/BlackOut, on demand -- same trick as above. Supersedes Part 30's
+    # Independents and Solo/BlackOut, on demand -- same trick as above. Supersedes the earlier
     # approach entirely: that sent SmartSoft's full 191-entry show catalog request and waited
     # ~10-15s for it to crawl through, because at the time it seemed to be the only way to get
     # these two. request_type() -- proven generic by this point -- just works for these too
-    # (confirmed live, RE notes Part 34), and this tool doesn't need anything else out of that
-    # catalog (names/groups/cues/curves -- all real, just not printed by this terminal tool).
+    # (confirmed live), and this tool doesn't need anything else out of that catalog
+    # (names/groups/cues/curves -- all real, just not printed by this terminal tool).
     for type_byte in (0x0c, 0x16):
         req_type, req_data = link.request_type(type_byte)
         if req_type is not None:
