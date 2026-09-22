@@ -58,8 +58,8 @@ ALL_FADER_MODES = INTENSITY_MODES + ("PARAM 1", "PARAM 2", "MEMS")  # every mode
 
 state = {
     "connected": False,
-    "fader_mode": "INT A",
-    "fader_mode_confirmed": False,  # False = assumed default, never actually seen a type=0x17
+    "fader_mode": None,  # None = unknown -- never actually seen a type=0x17; not a guess like "INT A"
+    "fader_mode_confirmed": False,  # False = fader_mode is still unknown/unconfirmed
     "intensities": {mode: [0] * 24 for mode in INTENSITY_MODES},
     "labels": {mode: {} for mode in INTENSITY_MODES},
     "independent_labels": {},
@@ -106,14 +106,19 @@ def handle_payload(obj_type, data):
                 _last_logged_master = master
             with state_condition:
                 mode = state["fader_mode"]
-                if DEBUG and faders != _last_logged_intensities[mode]:
-                    changed = {i + 1: (_last_logged_intensities[mode][i], v)
-                               for i, v in enumerate(faders) if v != _last_logged_intensities[mode][i]}
-                    print(f"[intensity:{mode}] t={time.time() - _t_start:7.3f}  "
-                          f"confirmed={state['fader_mode_confirmed']}  changed={changed}",
-                          file=sys.stderr)
-                    _last_logged_intensities[mode] = faders
-                state["intensities"][mode] = faders
+                # mode is None until a type=0x17 reply has actually been seen -- 0x0e is
+                # mode-agnostic on the wire, so without a confirmed mode there's no way to know
+                # which intensity bank this belongs to. Drop it rather than guess (that guess
+                # is exactly the "assumed INT A" bug this state was changed to avoid).
+                if mode is not None:
+                    if DEBUG and faders != _last_logged_intensities[mode]:
+                        changed = {i + 1: (_last_logged_intensities[mode][i], v)
+                                   for i, v in enumerate(faders) if v != _last_logged_intensities[mode][i]}
+                        print(f"[intensity:{mode}] t={time.time() - _t_start:7.3f}  "
+                              f"confirmed={state['fader_mode_confirmed']}  changed={changed}",
+                              file=sys.stderr)
+                        _last_logged_intensities[mode] = faders
+                    state["intensities"][mode] = faders
                 state["bumps"] = bumps
                 state["master"] = master
                 state["last_update"] = time.time()
@@ -238,10 +243,11 @@ def poll_forever(stop_event):
         # Proactively ask for the current fader MODE before asking for fader/master/bumps
         # state -- type=0x0e is mode-agnostic on the wire (it just reports whatever's on the
         # physical faders right now, for whichever mode happens to be active), and until a
-        # real type=0x17 is seen, state["fader_mode"] defaults to "INT A".
-        # Asking for 0x0e first, before knowing the true mode, silently mislabeled its data
-        # as INT A whenever the console was actually in INT B or DEVICE INT at connect (found
-        # live: "only intensity A are read at startup"). request_type() works for
+        # real type=0x17 is seen, state["fader_mode"] stays None (unknown) rather than
+        # guessing -- handle_payload() drops 0x0e data entirely while it's None.
+        # Asking for 0x0e first, before knowing the true mode, used to silently mislabel its
+        # data as INT A whenever the console was actually in INT B or DEVICE INT at connect
+        # (found live: "only intensity A are read at startup"). request_type() works for
         # 0x17 exactly like it does for 0x0e, returning the true current mode on demand (not
         # just on a change, unlike the passive announce) --
         # confirmed live with debug_ask_0x17.py against a console sitting in DEVICE INT mode.

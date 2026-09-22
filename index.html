@@ -198,9 +198,12 @@ function render(state) {
   connText.textContent = state.connected ? "connected" : "waiting for console…";
 
   const pill = document.getElementById("mode-pill");
-  const modeClass = MODE_PILL_CLASS[state.fader_mode] || "active-D";
+  // state.fader_mode is null until a real type=0x17 reply has been seen (e.g. before the
+  // console has ever connected) -- show that as "unknown", not a guessed mode.
+  const modeKnown = state.fader_mode !== null;
+  const modeClass = (modeKnown && MODE_PILL_CLASS[state.fader_mode]) || "";
   pill.className = "mode-pill " + modeClass + (state.fader_mode_confirmed ? "" : " unconfirmed");
-  pill.textContent = "mode: " + state.fader_mode + (state.fader_mode_confirmed ? "" : " (assumed default)");
+  pill.textContent = "mode: " + (modeKnown ? state.fader_mode : "unknown");
 
   MODES.forEach(mode => {
     const badge = document.querySelector("#section-" + CSS.escape(mode) + " .active-badge");
