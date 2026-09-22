@@ -156,6 +156,29 @@ function buildPhysicalFaderMeters() {
 }
 buildPhysicalFaderMeters();
 
+// .intensity-row wraps from 24 columns to two 12-column rows below 1600px (see style.css) --
+// matches that breakpoint exactly, so layout/group-bar placement always agrees with whichever
+// one actually applied.
+function currentColumnsPerRow() {
+  return window.matchMedia("(max-width: 1600px)").matches ? 12 : 24;
+}
+
+// Explicitly places a 24-cell row's .meter children at (row, column) for the given
+// columns-per-row, instead of leaving them to plain CSS Grid auto-placement. Needed once a
+// row can have group-bar captions AND wrap to two 12-column rows at once: auto-placement packs
+// wrapped items straight into consecutive rows with no gap, so there's no row left free
+// between them for the first wrapped block's own captions -- confirmed live (meters 13+
+// visibly collided with the first block's caption bars) before this existed. Odd rows (1, 3,
+// 5, ...) hold each wrapped block's meters; the even row right after each is reserved for that
+// block's captions (see projectGroupSegments below) and simply stays empty -- 0 height -- for
+// any row with nothing grouped, e.g. every INT A/B/DEV row today.
+function layoutMeterGrid(containerEl, columnsPerRow) {
+  containerEl.querySelectorAll(".meter").forEach((el, idx) => {
+    el.style.gridColumn = String((idx % columnsPerRow) + 1);
+    el.style.gridRow = String(Math.floor(idx / columnsPerRow) * 2 + 1);
+  });
+}
+
 function pct(v) { return Math.round((v / 255) * 100); }
 
 // Console convention: 100% reads as "F" (Full), never "100". No % sign anywhere.
@@ -245,20 +268,48 @@ function computeLabelGroups(labels) {
   return groups;
 }
 
-// Generic: (re)draws a row's group-bar captions from a [{label, start, end}] list (1-indexed
-// inclusive column range) -- removes whatever was there before (so this is safe to call again
-// whenever the applicable groups change, e.g. a mode switch) and appends one .group-bar per
-// group, spanning its columns. No grid-row is set: with the row's cells already occupying every
-// column of row 1, a .group-bar with no row of its own auto-places into the next row down,
-// landing directly under the cells it spans without any row-index bookkeeping here.
-function renderGroupBars(containerEl, groups) {
+// Projects an absolute 1-24 group range onto whichever layout is actually active. At 24
+// columns-per-row there's exactly one meter row (row 1) and the caption goes in row 2, same
+// as before. Once wrapped to 12-per-row, the 24 meters occupy BOTH row 1 (items 1-12) and row
+// 2 (items 13-24) -- there's no longer a free row directly under either half for a
+// grid-row-less .group-bar to auto-place into (it would land in row 3 for EITHER half, since
+// that's the first row where 1-12 is free either way, merging both halves' captions into one
+// row). So each row's captions get an explicit grid-row of their own (3 for row 1's groups, 4
+// for row 2's), and a group that would have straddled the 12/13 boundary is split into two
+// segments -- one per wrapped row -- each re-numbered to that row's own 1-12 column space.
+// (Confirmed live: before this, the FADERS row's group-bars had explicit grid-column values up
+// to 24, which forced CSS Grid to create implicit columns to fit them even under the 12-column
+// media query, silently keeping the whole row 24-wide and defeating the wrap entirely -- the
+// bug this function exists to fix.)
+function projectGroupSegments(g, columnsPerRow) {
+  const segments = [];
+  for (let rowStart = 1; rowStart <= 24; rowStart += columnsPerRow) {
+    const rowEnd = rowStart + columnsPerRow - 1;
+    const start = Math.max(g.start, rowStart);
+    const end = Math.min(g.end, rowEnd);
+    if (start > end) continue;
+    const meterRow = (rowStart - 1) / columnsPerRow * 2 + 1;
+    segments.push({ label: g.label, start: start - rowStart + 1, end: end - rowStart + 1, row: meterRow + 1 });
+  }
+  return segments;
+}
+
+// Generic: (re)draws a row's group-bar captions from a [{label, start, end}] list (1-indexed,
+// absolute 1-24 column range) -- removes whatever was there before (so this is safe to call
+// again whenever the applicable groups OR the wrap layout change) and appends one .group-bar
+// per projected segment (see projectGroupSegments), each with an explicit grid-column AND
+// grid-row so its placement doesn't depend on auto-placement guessing correctly.
+function renderGroupBars(containerEl, groups, columnsPerRow) {
   containerEl.querySelectorAll(".group-bar").forEach(el => el.remove());
   for (const g of groups) {
-    const bar = document.createElement("div");
-    bar.className = "group-bar";
-    bar.style.gridColumn = `${g.start} / ${g.end + 1}`;
-    bar.textContent = g.label;
-    containerEl.appendChild(bar);
+    for (const seg of projectGroupSegments(g, columnsPerRow)) {
+      const bar = document.createElement("div");
+      bar.className = "group-bar";
+      bar.style.gridColumn = `${seg.start} / ${seg.end + 1}`;
+      bar.style.gridRow = String(seg.row);
+      bar.textContent = seg.label;
+      containerEl.appendChild(bar);
+    }
   }
 }
 
@@ -266,6 +317,36 @@ function renderGroupBars(containerEl, groups) {
 // row and each individual fader label can agree on exactly which faders are actually grouped,
 // without recomputing/duplicating that logic in two places.
 const PARAM_GROUPS = { "PARAM 1": computeLabelGroups(PARAM_1_LABELS), "PARAM 2": computeLabelGroups(PARAM_2_LABELS) };
+
+// Set in render() whenever the mode changes; read here and by relayoutAllRows() below. Declared
+// before its first use (relayoutAllRows() runs immediately, once, right after this) rather than
+// down next to render() -- a `let` is in its temporal dead zone until its declaration actually
+// runs, and that immediate call would otherwise hit it before render() ever gets a chance to.
+let lastFaderGroupMode = null;
+
+// Draws the FADERS row's group-bars for whichever mode last rendered (lastFaderGroupMode,
+// updated in render()), using the layout that's ACTUALLY active right now. Called both from
+// render() (on a mode change) and from relayoutAllRows() below (on a wrap-layout change) --
+// a plain resize can cross the 1600px breakpoint with no mode change involved at all, and the
+// bars need to be re-projected either way.
+function updateFaderGroupBars() {
+  renderGroupBars(document.getElementById("physical-faders"),
+    PARAM_GROUPS[lastFaderGroupMode] || [], currentColumnsPerRow());
+}
+
+// Every 24-cell row's .meter positions (layoutMeterGrid) and the FADERS row's group-bars both
+// depend on the SAME columns-per-row layout, so both need redoing together whenever it changes
+// -- not just at page load, but on any resize that crosses the 1600px breakpoint, since
+// layoutMeterGrid's explicit grid-column/grid-row values are static once set and don't
+// magically update themselves the way plain CSS auto-placement would have.
+const ALL_INTENSITY_ROW_IDS = ["intensities-INT A", "intensities-INT B", "intensities-INT DEV", "physical-faders"];
+function relayoutAllRows() {
+  const columnsPerRow = currentColumnsPerRow();
+  for (const id of ALL_INTENSITY_ROW_IDS) layoutMeterGrid(document.getElementById(id), columnsPerRow);
+  updateFaderGroupBars();
+}
+relayoutAllRows();
+window.matchMedia("(max-width: 1600px)").addEventListener("change", relayoutAllRows);
 
 // A ["Group","Item"] entry's group name is already shown once, in the group-bar underneath the
 // whole group -- repeating it on every member fader's own label too (the original behavior)
@@ -376,7 +457,6 @@ function setPhysicalFader(i, value, light, mode, labels, memsPage) {
 }
 
 let lastUpdate = 0;
-let lastFaderGroupMode = null;
 
 function render(state) {
   const dot = document.getElementById("dot");
@@ -419,7 +499,7 @@ function render(state) {
   // uses, so the bar and the per-fader labels can never disagree about what's grouped.
   if (state.fader_mode !== lastFaderGroupMode) {
     lastFaderGroupMode = state.fader_mode;
-    renderGroupBars(document.getElementById("physical-faders"), PARAM_GROUPS[state.fader_mode] || []);
+    updateFaderGroupBars();
   }
 
   setIndependent(document.getElementById("ind1"), document.getElementById("ind-1"),
