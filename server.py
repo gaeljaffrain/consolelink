@@ -21,7 +21,7 @@ re-deriving it -- see that module's docstring for the
 wire-protocol details (idle poll, announce/ack handshake, request_type(),
 type=0x0e/0x17 decoding).
 
-Shows: the per-slot Intensity values (INT A, INT B, DEVICE INT) for all 24
+Shows: the per-slot Intensity values (INT A, INT B, INT DEV) for all 24
 fader slots -- these are the console's stored intensity levels, not raw
 physical fader positions. Only whichever mode is currently active on the
 console's fader-mode selector reflects live physical fader movement
@@ -57,7 +57,7 @@ STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
 # despite sharing the same protocol code. Set from args in main().
 CAPTURE_PATH = ""
 
-INTENSITY_MODES = ("INT A", "INT B", "DEVICE INT")  # sub-modes with a decoded intensity bank (type=0x0e/0x0f)
+INTENSITY_MODES = ("INT A", "INT B", "INT DEV")  # sub-modes with a decoded intensity bank (type=0x0e/0x0f)
 ALL_FADER_MODES = INTENSITY_MODES + ("PARAM 1", "PARAM 2", "MEMS")  # every mode the physical fader-mode selector (type=0x17) can report
 
 state = {
@@ -127,7 +127,7 @@ def handle_payload(obj_type, data):
                 # Gated on mode being one of the 3 known INTENSITY_MODES, not just "not None":
                 # mode can also be confirmed as PARAM 1/PARAM 2/MEMS (valid per ALL_FADER_MODES,
                 # via a real type=0x17), but state["intensities"]/_last_logged_intensities only
-                # have entries for INT A/INT B/DEVICE INT -- whether type=0x0e's raw fader value
+                # have entries for INT A/INT B/INT DEV -- whether type=0x0e's raw fader value
                 # even means "intensity" in those other modes is still an open RE question (see
                 # the protocol.py module docstring/RE notes Part 42), so there's no bank to
                 # attribute it to yet, and indexing either dict with "PARAM 1" is a KeyError, not
@@ -300,11 +300,11 @@ def poll_forever(stop_event):
         # real type=0x17 is seen, state["fader_mode"] stays None (unknown) rather than
         # guessing -- handle_payload() drops 0x0e data entirely while it's None.
         # Asking for 0x0e first, before knowing the true mode, used to silently mislabel its
-        # data as INT A whenever the console was actually in INT B or DEVICE INT at connect
+        # data as INT A whenever the console was actually in INT B or INT DEV at connect
         # (found live: "only intensity A are read at startup"). request_type() works for
         # 0x17 exactly like it does for 0x0e, returning the true current mode on demand (not
         # just on a change, unlike the passive announce) --
-        # confirmed live with debug_ask_0x17.py against a console sitting in DEVICE INT mode.
+        # confirmed live with debug_ask_0x17.py against a console sitting in INT DEV mode.
         mode_type, mode_data = link.request_type(0x17)
         if mode_type is not None:
             log_capture("requested", mode_type, mode_data)
@@ -327,7 +327,7 @@ def poll_forever(stop_event):
             print("[webapp] proactive 0x0e request got no reply", file=sys.stderr)
 
         # type=0x0f holds all three intensity banks at once -- this is what actually gets
-        # INT B/DEVICE INT populated on connect too, not just whichever mode happens to be
+        # INT B/INT DEV populated on connect too, not just whichever mode happens to be
         # active (found live: "only intensity A are read at startup" persisted even after the
         # mode-ordering fix above, because that fix only affects 0x0e, which is mode-agnostic
         # by nature and structurally can't report a mode that isn't active).

@@ -68,20 +68,38 @@ h1 {
   box-shadow: 0 0 6px var(--bad);
 }
 .dot.ok { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
-.mode-pill {
-  background: var(--panel);
-  border: 1px solid var(--grid);
-  border-radius: 999px;
-  padding: 3px 12px;
-  font-weight: 600;
-}
-.mode-pill.active-A { color: var(--accent-green); }
-.mode-pill.active-B { color: var(--accent-green); }
-.mode-pill.active-D { color: var(--accent-green); }
-.mode-pill.active-P1 { color: var(--accent-green); }
-.mode-pill.active-P2 { color: var(--accent-green); }
-.mode-pill.active-M { color: #ff0000; }
+/* Sits under the FADERS section-title text (a 46px-wide column, see .section.section-row
+   .section-title) -- styled to match .section-title .active-badge (the INT A/B/DEV rows'
+   "Active" badge) since they're both small status badges living in the same section-title
+   spot: solid fill + dark text, 4px radius, 700 weight. Neutral grey/dim fill when the mode
+   is still unknown (no active-* class yet), same as the rest of the UI's unknown-state
+   color; solid accent-green/red once a mode is confirmed. */
 .mode-pill.unconfirmed { opacity: 0.55; font-style: italic; }
+.section-title .mode-pill {
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  border: none;
+  border-radius: 4px;
+  text-align: center;
+  white-space: normal;
+  text-transform: none;
+  letter-spacing: 0;
+  background: var(--grid);
+  color: var(--dim);
+}
+.section-title .mode-pill.active-A,
+.section-title .mode-pill.active-B,
+.section-title .mode-pill.active-D,
+.section-title .mode-pill.active-P1,
+.section-title .mode-pill.active-P2 {
+  background: var(--accent-green);
+  color: #0b0c0e;
+}
+.section-title .mode-pill.active-M {
+  background: #ff0000;
+  color: var(--text);
+}
 
 .section {
   background: var(--panel);

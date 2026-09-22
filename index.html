@@ -12,7 +12,6 @@
 
   <div class="status-row">
     <div class="status"><span class="dot" id="dot"></span><span id="conn-text">connecting…</span></div>
-    <div class="mode-pill" id="mode-pill">mode: —</div>
     <div id="stale-text" style="color: var(--dim);"></div>
   </div>
 
@@ -88,22 +87,24 @@
     <div class="intensity-row" id="intensities-INT B"></div>
   </div>
 
-  <div class="section section-row" id="section-DEVICE INT">
+  <div class="section section-row" id="section-INT DEV">
     <div class="section-title">INT DEV <span class="active-badge" style="display:none">Active</span></div>
-    <div class="intensity-row" id="intensities-DEVICE INT"></div>
+    <div class="intensity-row" id="intensities-INT DEV"></div>
   </div>
 
   <div class="section section-row" id="section-physical">
-    <div class="section-title">FADERS</div>
+    <div class="section-title">FADERS
+      <div class="mode-pill" id="mode-pill">—</div>
+    </div>
     <div class="intensity-row" id="physical-faders"></div>
   </div>
 
 <script>
-const MODES = ["INT A", "INT B", "DEVICE INT"];
+const MODES = ["INT A", "INT B", "INT DEV"];
 const MODE_PILL_CLASS = {
   "INT A": "active-A",
   "INT B": "active-B",
-  "DEVICE INT": "active-D",
+  "INT DEV": "active-D",
   "PARAM 1": "active-P1",
   "PARAM 2": "active-P2",
   "MEMS": "active-M",
@@ -188,7 +189,7 @@ function setName(container, lines) {
 }
 
 // The Physical Faders row's per-fader label: what slider 1-24 actually means changes with
-// the fader mode, so the label does too. INT A/INT B/DEVICE INT and PARAM 1/2 are fixed,
+// the fader mode, so the label does too. INT A/INT B/INT DEV and PARAM 1/2 are fixed,
 // deterministic labels -- not sent on the wire, since fader N always means the same thing in
 // these modes -- confirmed against the console's own physical/manual labeling by the
 // console's owner. Each entry is up to 3 lines (same 3-line label area the console's own
@@ -202,7 +203,7 @@ const PARAM_1_LABELS = [
   ["Gobo 2", "Select"], ["Gobo 2", "Index"], ["Gobo 2", "Rotate"], ["Gobo 2", "Mode"], ["Beam", "Zoom"], ["Beam", "Edge"], ["Beam", "Iris"], ["Beam", "Frost"],
 ];
 const PARAM_2_LABELS = Array.from({ length: 24 }, () => []);
-const INTENSITY_LABEL_PREFIX = { "INT A": "Int A", "INT B": "Int B", "DEVICE INT": "Int D" };
+const INTENSITY_LABEL_PREFIX = { "INT A": "Int A", "INT B": "Int B", "INT DEV": "Int D" };
 
 function pad3(lines) {
   return [lines?.[0] || "", lines?.[1] || "", lines?.[2] || ""];
@@ -310,7 +311,7 @@ function render(state) {
   const modeKnown = state.fader_mode !== null;
   const modeClass = (modeKnown && MODE_PILL_CLASS[state.fader_mode]) || "";
   pill.className = "mode-pill " + modeClass + (state.fader_mode_confirmed ? "" : " unconfirmed");
-  pill.textContent = "mode: " + (modeKnown ? state.fader_mode : "unknown");
+  pill.textContent = modeKnown ? state.fader_mode : "unknown";
 
   MODES.forEach(mode => {
     const badge = document.querySelector("#section-" + CSS.escape(mode) + " .active-badge");

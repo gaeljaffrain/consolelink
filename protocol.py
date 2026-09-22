@@ -37,8 +37,8 @@ Decodes:
     level, a device intensity, ...) depending on type=0x17 below.
   - type=0x0f (75 bytes): the stored intensity table -- unlike 0x0e (which
     only ever reports whichever fader mode is physically active), this holds
-    all three intensity sub-mode banks (INT A/INT B/DEVICE INT) at once --
-    `[header:1][INT A: 24][INT B: 24][DEVICE INT: 24]`.
+    all three intensity sub-mode banks (INT A/INT B/INT DEV) at once --
+    `[header:1][INT A: 24][INT B: 24][INT DEV: 24]`.
   - type=0x11 (209 bytes): Crossfader Live, Crossfader Next.
   - type=0x15 (81 bytes): the console's two physical LCDs, verbatim ASCII --
     1 marker byte + 80 characters (2 displays x 2 lines x 20 chars). This is
@@ -52,7 +52,7 @@ Decodes:
     (0x46, 0x0a) while that fader's Bump LED is blinking (unlatched after a
     fader-mode switch), else tracks its live output 1:1.
   - type=0x17 (7 bytes): the fader-mode selector, all six modes (INT A/INT
-    B/DEVICE INT/PARAM 1/PARAM 2/MEMS) -- only fires unprompted on a mode
+    B/INT DEV/PARAM 1/PARAM 2/MEMS) -- only fires unprompted on a mode
     CHANGE, but request_type() gets the true current mode on demand
     regardless.
   - type=0x18 (variable): the Device/Palette-Select row's resulting
@@ -187,21 +187,21 @@ def decode_0x15(data):
     return lines
 
 
-INTENSITY_SUBMODE_NAMES = {0: "INT A", 1: "INT B", 2: "DEVICE INT"}
+INTENSITY_SUBMODE_NAMES = {0: "INT A", 1: "INT B", 2: "INT DEV"}
 
 
 def decode_0x17(data):
     """type=0x17 (7 bytes): the fader-mode selector. Only fires on change.
 
     Two-field encoding (data[4] was confirmed for the intensity family
-    first; a later capture cycling INT A -> INT B -> DEVICE INT -> PARAM 1 ->
+    first; a later capture cycling INT A -> INT B -> INT DEV -> PARAM 1 ->
     PARAM 2 -> MEMS -> INT A with nothing else touched, one button per ~2s,
     gave a clean single-bit-diff transition at every step and confirmed the
     rest):
-      data[0]: family -- 0 = intensity (INT A/B/DEVICE INT), 1 = MEMS,
+      data[0]: family -- 0 = intensity (INT A/B/INT DEV), 1 = MEMS,
                2 = PARAM (device parameters)
       data[4]: sub-mode within the intensity family (0/1/2 = INT A/INT B/
-               DEVICE INT) -- stale/meaningless once data[0] != 0
+               INT DEV) -- stale/meaningless once data[0] != 0
       data[3]: sub-mode within the PARAM family (0 = PARAM 1, 1 = PARAM 2)
                -- stale/meaningless once data[0] != 2
       data[2]: the currently selected MEMS page (see decode_0x17_mems_page below) --
@@ -253,7 +253,7 @@ def decode_0x18(data):
 
 
 def decode_0x09_labels(data):
-    """Decode the per-item name table for INT A / INT B / DEVICE INT / Independents.
+    """Decode the per-item name table for INT A / INT B / INT DEV / Independents.
 
     The console sends a series of 39-byte records, each structured as:
       page: index 0, then tag 0x03 0x06 + 1 pad byte, then a UTF-16LE 3-line label:
@@ -275,9 +275,9 @@ def decode_0x09_labels(data):
     the console does rather than word-wrapping a joined string to a different width.
     """
     if len(data) < 39:
-        return {"INT A": {}, "INT B": {}, "DEVICE INT": {}, "Independent": {}}
+        return {"INT A": {}, "INT B": {}, "INT DEV": {}, "Independent": {}}
 
-    result = {"INT A": {}, "INT B": {}, "DEVICE INT": {}, "Independent": {}}
+    result = {"INT A": {}, "INT B": {}, "INT DEV": {}, "Independent": {}}
     if len(data) % 39:
         data = data[:len(data) - (len(data) % 39)]
 
@@ -302,7 +302,7 @@ def decode_0x09_labels(data):
             family = "INT B"
             index = page - 24 + 1
         elif 48 <= page <= 71:
-            family = "DEVICE INT"
+            family = "INT DEV"
             index = page - 48 + 1
         else:
             family = "Independent"
@@ -318,16 +318,16 @@ def decode_0x0f_all_modes(data):
     intensity sub-mode banks simultaneously. The console has to keep this internally
     regardless -- switching modes instantly redisplays a completely different set of 24
     values, which couldn't happen if the non-active sub-modes' values weren't stored
-    somewhere. Layout: `[header:1][INT A: 24][INT B: 24][DEVICE INT: 24][+2 more bytes,
+    somewhere. Layout: `[header:1][INT A: 24][INT B: 24][INT DEV: 24][+2 more bytes,
     likely Bumps/Master -- not decoded here since type=0x0e already covers those]`. Confirmed
     live: set fader 1 to three distinct, known values across all three modes (39%/66%/21% ->
     raw 100/168/53) and found all three at offsets 1, 25, 49 -- exactly 24 apart.
-    Returns {"INT A": [24 raw intensity values], "INT B": [...], "DEVICE INT": [...]}, or
+    Returns {"INT A": [24 raw intensity values], "INT B": [...], "INT DEV": [...]}, or
     None if data is too short.
     """
     if len(data) < 73:
         return None
-    order = ("INT A", "INT B", "DEVICE INT")
+    order = ("INT A", "INT B", "INT DEV")
     return {order[m]: [data[1 + m * 24 + n] for n in range(24)] for m in range(3)}
 
 
