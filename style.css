@@ -434,6 +434,35 @@ h1 {
   color: var(--darktext);
   box-shadow: 0 0 10px var(--accent-green);
 }
+/* The Physical Faders row's light swatch: no text, just a color (solid,
+   intensity-proportional once caught; blinking between two brightness levels while the
+   physical fader hasn't caught its stored value yet). The wire only sends brightness --
+   green/red hue is picked in JS from the active fader mode (see faderColor() in index.html).
+   Sized to sit in a .meter's .name slot, same 24-per-row grid as the intensity rows above. */
+.fader-light {
+  width: 100%;
+  height: 16px;
+  margin-top: 4px;
+  border-radius: 3px;
+  background: #0e0f12;
+  border: 1px solid var(--grid);
+}
+.fader-light.placeholder {
+  background: #0e0f12;
+  border-color: var(--grid);
+}
+/* Driven by --color-a/--color-b custom properties set in JS per fader (not a hardcoded pair
+   like blink-solo/blink-blackout above) -- every one of the 24 faders can show a different
+   wire color, so the animation itself has to be color-agnostic. steps(1) for a discrete
+   flash, matching the real console's LED, not a smooth fade. */
+@keyframes blink-fader {
+  0%, 49%   { background: var(--color-a); }
+  50%, 100% { background: var(--color-b); }
+}
+.fader-light.blinking {
+  animation: blink-fader var(--blink-duration) steps(1) infinite;
+}
+
 .ind-button .lbl {
   font-size: 11px;
   font-weight: 600;

@@ -204,6 +204,8 @@ def decode_0x17(data):
                DEVICE INT) -- stale/meaningless once data[0] != 0
       data[3]: sub-mode within the PARAM family (0 = PARAM 1, 1 = PARAM 2)
                -- stale/meaningless once data[0] != 2
+      data[2]: the currently selected MEMS page (see decode_0x17_mems_page below) --
+               stale/meaningless once data[0] != 1
     MEMS corroborated independently: the console's LCD (type=0x15) shows
     "Memory page:1" the instant data[0] becomes 1.
     """
@@ -217,6 +219,29 @@ def decode_0x17(data):
     if family == 2:
         return "PARAM 1" if data[3] == 0 else "PARAM 2"
     return f"unknown family({family})"
+
+
+def decode_0x17_mems_page(data):
+    """type=0x17, MEMS family only (data[0] == 1): the currently selected memory page,
+    1-indexed to match the console's own LCD text ("Memory page:1" / "Bump 1-12 to change",
+    type=0x15, shown only while the MEMS button is physically held down). `data[2]` is the
+    0-indexed page number -- confirmed live cycling page 1 -> 2 -> 3 -> 4 -> 1
+    (traces/mems_switch_pages.log): every LCD "Memory page:N" transition lines up exactly
+    with data[2] becoming N-1, across all 4 pages, both while pressing a Bump button to
+    change page and on the very next MEMS-held press (i.e. it's the console's persisted
+    current page, not just an ephemeral "while held" value).
+
+    Not yet confirmed: whether the per-fader memory NAMES (decode_0x00_memory_name) are
+    windowed by this page at all -- no capture has shown fresh name traffic when switching
+    pages, and the one show captured so far has nothing named beyond page 1, so there's
+    nothing to verify names against on pages 2-4 yet. Meaningless/stale outside the MEMS
+    family -- callers should only read this when decode_0x17(data) == "MEMS".
+
+    Returns the 1-indexed page number, or None if data is too short.
+    """
+    if len(data) < 3:
+        return None
+    return data[2] + 1
 
 
 def decode_0x18(data):
@@ -304,6 +329,71 @@ def decode_0x0f_all_modes(data):
         return None
     order = ("INT A", "INT B", "DEVICE INT")
     return {order[m]: [data[1 + m * 24 + n] for n in range(24)] for m in range(3)}
+
+
+def decode_0x00_memory_name(data):
+    """type=0x00, connect-time only: one MEMS memory ("Look")'s name, plus (not decoded here)
+    a variable-length body carrying that memory's own recorded content -- confirmed live
+    against real named memories from traces/trace_fresh_start.pcapng: "Look 1", "Green
+    Violet", "Fire", "CMY Effect", "Blue wave", "Fanned on Wall", "Circle in front", "Rainbow
+    LEDs", "All in Red LEDs", "Rainbow FXs LEDs", "R-G-B effect LEDs" -- verified against the
+    console owner's own recollection of these names, not just plausible-looking text.
+
+    `data[0]` is the 0-indexed MEMS page (12 pages exist -- hold the MEMS button, press Bump
+    1-12 to pick one, see decode_0x17_mems_page) and `data[1]` is the 0-indexed slot within
+    that page. Every record in trace_fresh_start.pcapng/mems_switch_pages.log had data[0]==0
+    (all on page 1) with data[1] varying 0-23, which first looked like a single combined
+    index -- corrected against traces/mems_names_page1-2-3.log, which named a memory
+    "page2 mem1" specifically so its wire position would be self-describing, and it decoded
+    at data[0]=1 (0-indexed page 2), data[1]=0 (slot 1, fader 1 -- confirmed against the
+    console owner's own account of where they recorded it) -- confirming the two-field split,
+    not a single 0-287 index.
+
+    Confirmed limitation (not a decode bug): this connect-time catalog is NOT a full per-slot
+    enumeration of every page's 24 memories. The same capture also had a memory recorded on
+    page 3 at fader 5 ("page3 mem5", confirmed by the console owner), which never appears
+    anywhere in the trace at data[0]=2 -- the only page-3 record present is data[0]=2,
+    data[1]=0, and it decodes as genuinely blank/erased (0xff-filled, not 0x00, so unwritten,
+    not a parse failure). So the catalog appears to send at most one representative entry per
+    visited page (whichever slot happens to be selected/highlighted, defaulting to slot 0
+    unless navigated elsewhere), not every named memory on that page. Getting a specific
+    slot's real name likely needs that slot actively selected/highlighted on the console
+    (e.g. via its own memory-list UI) before/during the capture, the same way the gobo/color
+    picker names in an earlier trace only appeared once scrolled into view -- not yet tried.
+    Callers should expect this to only ever populate a subset of slots, never assume a miss
+    means "no memory recorded there."
+
+    Also not yet resolved: whether the catalog re-sends fresh data when switching pages --
+    no capture so far has shown new type=0x00 traffic on a page switch, consistent with the
+    (partial) catalog being sent once at connect, not re-fetched per page.
+
+    The name itself sits in the LAST 38 bytes of the message, tail-anchored regardless of
+    overall message length (confirmed at message lengths 323/339/355/575/1047/4995, always
+    landing the tag at exactly `len(data) - 38`, never a fixed absolute offset -- the body
+    before it is presumably that memory's own scene data, scaling with complexity the same way
+    a type=0x04 Stack step's body does): `[tag: 0x03 0x06][pad: 0x00][line1: 12-byte UTF-16LE]
+    [line2: 12-byte UTF-16LE][line3: 11-byte UTF-16LE]` -- the exact same tag and 3-line
+    (6/6/5-char) shape as decode_0x09_labels, including that decoder's same documented
+    one-byte-short third line (confirmed here too: "Rainbow LEDs" -> line1 "Rainbo", line2 "w
+    FXs"/"w", i.e. the console's own firmware truncates the same way, not a decode bug).
+
+    Returns (page, slot, [line1, line2, line3]) -- both 0-indexed, lines exactly as laid out
+    on the wire, same shape as decode_0x09_labels/decode_0x0c so callers can render/join them
+    the same way -- or None if data is too short or the expected tag isn't where it should be
+    (rather than silently decoding garbage as a name).
+    """
+    if len(data) < 40:
+        return None
+    page = data[0]
+    slot = data[1]
+    tag_off = len(data) - 38
+    if data[tag_off:tag_off + 2] != b"\x03\x06":
+        return None
+    name = data[tag_off + 3:tag_off + 38]
+    line1 = name[0:12].decode("utf-16-le", errors="ignore").replace("￿", "").rstrip("\x00�").strip()
+    line2 = name[12:24].decode("utf-16-le", errors="ignore").replace("￿", "").rstrip("\x00�").strip()
+    line3 = name[24:35].decode("utf-16-le", errors="ignore").replace("￿", "").rstrip("\x00�").strip()
+    return page, slot, [line1, line2, line3]
 
 
 _0X0C_MARKER = bytes.fromhex("0001030600")
@@ -397,44 +487,71 @@ def decode_0x16_indicators(data):
     }
 
 
-_0X16_BLINK_PAIR = (0x46, 0x0A)
-
-
 def decode_0x16_bump_catch(data, fader):
-    """type=0x16, per-fader 6-byte block: the Bump LED for a fader
-    that's "unlatched" after a fader-mode switch -- i.e. its saved logical value doesn't match
-    the physical fader position, so moving it has no effect on output until the physical
-    position catches up. `fader` is 1-indexed (1-24, same convention as decode_0x0e's
-    `Fader{N}`); its block is `data[2+6*(fader-1)]` / `data[5+6*(fader-1)]`. Formula confirmed
-    live across three separate faders at three different offsets (fader 1 -> 2/5, fader 2 ->
-    8/11, fader 24 -> 140/143 -- traces/trace_fader0_wiggle_then_catch.pcapng and
-    trace_blink_bump2_24_solo.pcapng):
+    """type=0x16, per-fader Bump LED for a fader that's "unlatched" after a fader-mode switch
+    -- i.e. its saved logical value doesn't match the physical fader position, so moving it has
+    no effect on output until the physical position catches up. `fader` is 1-indexed (1-24,
+    same convention as decode_0x0e's `Fader{N}`).
+
+    Reads only the R byte of each of the block's two halves -- `data[2+6*(fader-1)]` and
+    `data[5+6*(fader-1)]` -- deliberately, NOT the full 3-byte RGB half each offset starts
+    (`decode_0x16_indicators`'s Solo/BlackOut blocks are genuinely 3-byte-RGB pairs, and an
+    earlier version of this function assumed the same 6-byte shape here). Live capture found
+    that assumption wrong at the boundary: for fader 24 specifically, the trailing byte of its
+    would-be 6-byte block (offset 145 in traces/capture_webapp_startup.log, t=12.861) is `0x63`
+    -- not fader 24's own idle `0x00`, but the leading byte of a completely different, adjacent
+    24-button LED region (matches the `0x63 63 63...` run in
+    traces/trace_24buttons_top_device_palette_select.pcapng), which made fader 24 register as
+    permanently "blinking" at rest for no on-console reason. Only the R byte at each half has
+    ever been directly confirmed to track a fader's own live value, across three separate
+    faders at three different offsets (fader 1 -> 2/5, fader 2 -> 8/11, fader 24 -> 140/143 --
+    traces/trace_fader0_wiggle_then_catch.pcapng and trace_blink_bump2_24_solo.pcapng):
 
       - While unlatched (console shows the Bump LED blinking, visibly dim rather than a hard
-        on/off flash -- confirmed by eye against real hardware): both bytes sit at a fixed
-        `(0x46, 0x0a)` pair, regardless of how long the wiggling goes on, how far the physical
-        fader actually moves, or *which* fader it is (identical constant for faders 1, 2 and
-        24 alike). Read as the blink's two displayed brightness levels (matches the observed
-        dim pulsing far better than a literal on/off pair would), sent once as a pair when
-        blinking starts -- the alternation itself is handled locally, not re-sent per flash.
-      - The instant the fader is physically caught, both bytes start tracking the fader's own
-        live combined output 1:1 (matches the concurrent type=0x0e reading step for step
-        across a full 246->0 ramp down to 0, each type=0x16 arriving a few ms after the
-        type=0x0e it mirrors).
-      - At rest (fader untouched, value unchanged), both bytes equal the fader's steady value
+        on/off flash -- confirmed by eye against real hardware): both R bytes sit at a fixed,
+        unequal pair, `(0x46, 0x0a)` -- two dim reds -- regardless of how long the wiggling
+        goes on, how far the physical fader actually moves, or *which* fader it is (identical
+        constant for faders 1, 2 and 24 alike). Read as the blink's two displayed brightness
+        levels (matches the observed dim pulsing far better than a literal on/off pair would),
+        sent once as a pair when blinking starts -- the alternation itself is handled locally,
+        not re-sent per flash.
+      - The instant the fader is physically caught, both R bytes start tracking the fader's own
+        live combined output 1:1 (matches the concurrent type=0x0e reading step for step across
+        a full 246->0 ramp down to 0, each type=0x16 arriving a few ms after the type=0x0e it
+        mirrors).
+      - At rest (fader untouched, value unchanged), both R bytes equal the fader's steady value
         (e.g. `(0xff, 0xff)` while resting at 255/full) -- indistinguishable on the wire from
         "just caught," since both just mean "LED solid, showing this value."
 
-    Returns None if data is too short, else {"blinking": True} while unlatched, or
-    {"blinking": False, "value": <0-255>} once latched/at rest.
+    "Blinking" is decoded generically as "the two R bytes don't match" -- the same rule
+    `decode_0x16_indicators` uses for its full RGB halves, applied here to just the confirmed
+    byte -- rather than comparing against the single confirmed blink-pair constant. Every trace
+    sample seen so far is either exactly `(0x46, 0x0a)` or the two bytes being equal; this
+    generalization additionally treats any other unequal pair as blinking too, which has never
+    actually been observed on the wire.
+
+    This byte is brightness only, not a color -- there is no confirmed evidence the fader Bump
+    LED block is genuine RGB the way Solo/BlackOut's blocks are. (An earlier version of this
+    function read the full would-be 6-byte RGB half and reported it as red, i.e. assumed
+    G=B=0; that was never actually confirmed either -- it just happened to match every solid
+    reading seen so far -- and reading the full 6 bytes is what caused the fader-24 boundary
+    bug above.) Per the console's owner, checking against real hardware: the Bump LED is green
+    in every fader mode except MEMS, where it's red -- i.e. the console picks the LED's hue
+    locally from the active fader mode, not from anything sent per-fader on the wire. Callers
+    should derive the display color from the currently known `fader_mode` (type=0x17) and use
+    this function's value purely as brightness.
+
+    Returns None if data is too short, else {"blinking": True, "value_a": 0-255,
+    "value_b": 0-255} while unlatched, or {"blinking": False, "value": 0-255} once
+    latched/at rest.
     """
     off = 2 + 6 * (fader - 1)
     if len(data) < off + 4:
         return None
     a, b = data[off], data[off + 3]
-    if (a, b) == _0X16_BLINK_PAIR:
-        return {"blinking": True}
-    return {"blinking": False, "value": a if a == b else None}
+    if a != b:
+        return {"blinking": True, "value_a": a, "value_b": b}
+    return {"blinking": False, "value": a}
 
 
 class ConsoleLink:

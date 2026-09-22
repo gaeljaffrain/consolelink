@@ -93,6 +93,11 @@
     <div class="intensity-row" id="intensities-DEVICE INT"></div>
   </div>
 
+  <div class="section section-row" id="section-physical">
+    <div class="section-title">FADERS</div>
+    <div class="intensity-row" id="physical-faders"></div>
+  </div>
+
 <script>
 const MODES = ["INT A", "INT B", "DEVICE INT"];
 const MODE_PILL_CLASS = {
@@ -125,6 +130,29 @@ function buildIntensityMeters(mode) {
   }
 }
 MODES.forEach(buildIntensityMeters);
+
+function buildPhysicalFaderMeters() {
+  const row = document.getElementById("physical-faders");
+  for (let i = 1; i <= 24; i++) {
+    const f = document.createElement("div");
+    f.className = "meter";
+    f.id = "physfader-" + i;
+    f.innerHTML = `
+      <div class="number">${i}</div>
+      <div class="value-row">
+        <div class="track"><div class="fill" style="height:0%"></div></div>
+        <div class="val">0</div>
+      </div>
+      <div class="fader-light placeholder" id="physfader-${i}-light"></div>
+      <div class="name">
+        <div class="name-line"></div>
+        <div class="name-line"></div>
+        <div class="name-line"></div>
+      </div>`;
+    row.appendChild(f);
+  }
+}
+buildPhysicalFaderMeters();
 
 function pct(v) { return Math.round((v / 255) * 100); }
 
@@ -159,6 +187,45 @@ function setName(container, lines) {
   }
 }
 
+// The Physical Faders row's per-fader label: what slider 1-24 actually means changes with
+// the fader mode, so the label does too. INT A/INT B/DEVICE INT and PARAM 1/2 are fixed,
+// deterministic labels -- not sent on the wire, since fader N always means the same thing in
+// these modes -- confirmed against the console's own physical/manual labeling by the
+// console's owner. Each entry is up to 3 lines (same 3-line label area the console's own
+// fields use elsewhere in this UI), so a wide name like "Strobe/Shutter" can be split instead
+// of clipping in the narrow 24-column layout -- pad3() below fills in any missing lines.
+// PARAM 2's list is a placeholder (same slot count as PARAM 1, all blank) for the console's
+// owner to fill in by hand once confirmed; leave PARAM_1_LABELS as the template to follow.
+const PARAM_1_LABELS = [
+  ["Intensity"], ["Focus", "Pan"], ["Focus", "Tilt"], ["Color", "Hue"], ["Color", "Sat"], ["Color", "Wheel 1"], ["Color", "Wheel 2"], ["Color", "Modify"],
+  ["Color", "Fx"], ["Strobe", "Shutter"], ["Beam Ctrl", "B1"], ["Beam Ctrl", "B2"], ["Gobo 1", "Select"], ["Gobo 1", "Index"], ["Gobo 1", "Rotate"], ["Gobo 1", "Mode"],
+  ["Gobo 2", "Select"], ["Gobo 2", "Index"], ["Gobo 2", "Rotate"], ["Gobo 2", "Mode"], ["Beam", "Zoom"], ["Beam", "Edge"], ["Beam", "Iris"], ["Beam", "Frost"],
+];
+const PARAM_2_LABELS = Array.from({ length: 24 }, () => []);
+const INTENSITY_LABEL_PREFIX = { "INT A": "Int A", "INT B": "Int B", "DEVICE INT": "Int D" };
+
+function pad3(lines) {
+  return [lines?.[0] || "", lines?.[1] || "", lines?.[2] || ""];
+}
+
+// MEMS's per-fader names come from the console's own memory ("Look") names -- decoded by
+// decode_0x00_memory_name in protocol.py and fed into state.labels["MEMS"][page][slot]
+// (both 1-indexed) by server.py. MEMS has (at least) 4 memory pages -- hold the MEMS button,
+// press Bump 1-12 to pick one -- and state.mems_page (from decode_0x17_mems_page) tracks
+// which one is current, confirmed live across all 4 by matching the console's own LCD text.
+// The page/slot split itself is confirmed against real named memories on two different pages
+// (traces/mems_names_page1-2-3.log: "page2 mem1" decoded at page 2 slot 1, self-describing by
+// design) -- so unlike the earlier page-1-only guess, this now looks up the label under
+// whichever page is actually current.
+function physicalFaderLabelLines(mode, i, memsLabels, memsPage) {
+  const prefix = INTENSITY_LABEL_PREFIX[mode];
+  if (prefix) return [`${prefix}:${i}`, "", ""];
+  if (mode === "PARAM 1") return pad3(PARAM_1_LABELS[i - 1]);
+  if (mode === "PARAM 2") return pad3(PARAM_2_LABELS[i - 1]);
+  if (mode === "MEMS") return memsLabels?.[memsPage]?.[i] || ["?", "", ""];
+  return ["", "", ""];
+}
+
 // state is null until the first type=0x16 message arrives (still "placeholder" until then),
 // then "on"/"off"/"blinking" (the console's own indicator LEDs are driven by a pair of colors
 // on the wire, and "blinking" is just the case where that pair disagrees).
@@ -187,6 +254,46 @@ function setIndependent(meterEl, btnEl, value, clicked, lines) {
   btnEl.classList.toggle("placeholder", !known);
   btnEl.classList.toggle("on", known && clicked === true);
   setName(btnEl.querySelector(".light"), known ? lines : ["?", "", ""]);
+}
+
+function rgbCss(color) {
+  return color ? `rgb(${color[0]}, ${color[1]}, ${color[2]})` : "";
+}
+
+// The wire only ever confirmed a single brightness byte per fader (see decode_0x16_bump_catch
+// in protocol.py for why reading it as RGB was wrong) -- the LED's actual hue isn't sent
+// per-fader at all. Per the console's owner, checked against real hardware: the Bump LED is
+// green in every fader mode except MEMS, where it's red. So hue is picked here from the
+// currently known fader_mode, not from the wire value, and the wire byte only scales
+// brightness. Same RGB triples as --accent-green/--bad in style.css, so this row's colors
+// stay visually consistent with the rest of the UI.
+const FADER_HUE_MEMS = [255, 92, 92];
+const FADER_HUE_DEFAULT = [211, 248, 181];
+function faderColor(mode, value) {
+  const hue = mode === "MEMS" ? FADER_HUE_MEMS : FADER_HUE_DEFAULT;
+  const scale = value / 255;
+  return hue.map(c => Math.round(c * scale));
+}
+
+// light is null until the first type=0x16 block for this fader has arrived, then either
+// {"blinking": true, "value_a": 0-255, "value_b": 0-255} (fader hasn't caught its stored value
+// yet -- the console's own Bump LED is genuinely flashing between these two brightness levels)
+// or {"blinking": false, "value": 0-255} (solid, latched/at rest).
+function setPhysicalFader(i, value, light, mode, memsLabels, memsPage) {
+  const meterEl = document.getElementById("physfader-" + i);
+  setBar(meterEl, value, true);
+  setName(meterEl, physicalFaderLabelLines(mode, i, memsLabels, memsPage));
+  const lightEl = document.getElementById("physfader-" + i + "-light");
+  lightEl.classList.toggle("placeholder", light == null);
+  if (light && light.blinking) {
+    lightEl.style.setProperty("--color-a", rgbCss(faderColor(mode, light.value_a)));
+    lightEl.style.setProperty("--color-b", rgbCss(faderColor(mode, light.value_b)));
+    lightEl.style.background = "";
+    lightEl.classList.add("blinking");
+  } else {
+    lightEl.classList.remove("blinking");
+    lightEl.style.background = light ? rgbCss(faderColor(mode, light.value)) : "";
+  }
 }
 
 let lastUpdate = 0;
@@ -220,6 +327,11 @@ function render(state) {
 
   setBar(document.getElementById("fader-master"), state.master);
   setBar(document.getElementById("bumps"), state.bumps);
+
+  for (let i = 1; i <= 24; i++) {
+    setPhysicalFader(i, state.physical_faders?.[i - 1] ?? 0, state.physical_fader_lights?.[i - 1],
+      state.fader_mode, state.labels?.["MEMS"], state.mems_page);
+  }
 
   setIndependent(document.getElementById("ind1"), document.getElementById("ind-1"),
     state.independent1, state.independent1_clicked, state.independent_labels?.[1]);

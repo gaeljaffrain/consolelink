@@ -29,7 +29,11 @@ console's fader-mode selector reflects live physical fader movement
 maintained intensity memory (type=0x0f) and only change when a fader is
 moved while that mode is active. Plus Master (a real physical fader) and
 Bumps. Independent 1/2, per the manual, are toggle/bump buttons (not
-faders) -- shown as lights, decoded from type=0x0c.
+faders) -- shown as lights, decoded from type=0x0c. Also a dedicated
+Physical Faders row: 24 bar+light indicators, one per physical fader,
+mode-agnostic (type=0x0e for the live value, type=0x16 for the Bump LED --
+solid/color-proportional once caught, blinking while the physical fader
+hasn't yet caught its stored logical value after a mode switch).
 """
 import argparse
 import json
@@ -60,9 +64,23 @@ state = {
     "connected": False,
     "fader_mode": None,  # None = unknown -- never actually seen a type=0x17; not a guess like "INT A"
     "fader_mode_confirmed": False,  # False = fader_mode is still unknown/unconfirmed
+    "mems_page": None,  # 1-indexed MEMS memory page (1-4 seen so far), from type=0x17's
+    # data[2] -- see decode_0x17_mems_page in protocol.py. Only meaningful while
+    # fader_mode == "MEMS"; None until a MEMS type=0x17 has actually been seen.
     "intensities": {mode: [0] * 24 for mode in INTENSITY_MODES},
-    "labels": {mode: {} for mode in INTENSITY_MODES},
+    "labels": dict({mode: {} for mode in INTENSITY_MODES}, MEMS={}),  # MEMS is nested one
+    # level deeper than the other families: {page (1-indexed): {slot (1-indexed): [lines]}},
+    # from type=0x00 (decode_0x00_memory_name). Confirmed only PARTIAL: the connect-time
+    # catalog dump sends at most one representative slot per visited page, not every named
+    # memory on it (see decode_0x00_memory_name's docstring) -- a missing slot here does not
+    # mean nothing is recorded there, only that this dump didn't happen to include it.
     "independent_labels": {},
+    "physical_faders": [0] * 24,  # live combined value per fader, mode-agnostic (type=0x0e)
+    "physical_fader_lights": [None] * 24,  # None until the first type=0x16 seen for that
+    # fader; then {"blinking": True, "value_a": 0-255, "value_b": 0-255} or
+    # {"blinking": False, "value": 0-255} -- brightness only, not a color; see
+    # decode_0x16_bump_catch in protocol.py for why, and fader_mode below for the hue
+    # (console LED is green in every mode except MEMS, which is red)
     "bumps": 0,
     "master": 0,
     "independent1": None,  # None until the first type=0x0c message; then a raw 0-255 value
@@ -106,11 +124,15 @@ def handle_payload(obj_type, data):
                 _last_logged_master = master
             with state_condition:
                 mode = state["fader_mode"]
-                # mode is None until a type=0x17 reply has actually been seen -- 0x0e is
-                # mode-agnostic on the wire, so without a confirmed mode there's no way to know
-                # which intensity bank this belongs to. Drop it rather than guess (that guess
-                # is exactly the "assumed INT A" bug this state was changed to avoid).
-                if mode is not None:
+                # Gated on mode being one of the 3 known INTENSITY_MODES, not just "not None":
+                # mode can also be confirmed as PARAM 1/PARAM 2/MEMS (valid per ALL_FADER_MODES,
+                # via a real type=0x17), but state["intensities"]/_last_logged_intensities only
+                # have entries for INT A/INT B/DEVICE INT -- whether type=0x0e's raw fader value
+                # even means "intensity" in those other modes is still an open RE question (see
+                # the protocol.py module docstring/RE notes Part 42), so there's no bank to
+                # attribute it to yet, and indexing either dict with "PARAM 1" is a KeyError, not
+                # a graceful skip.
+                if mode in INTENSITY_MODES:
                     if DEBUG and faders != _last_logged_intensities[mode]:
                         changed = {i + 1: (_last_logged_intensities[mode][i], v)
                                    for i, v in enumerate(faders) if v != _last_logged_intensities[mode][i]}
@@ -119,6 +141,10 @@ def handle_payload(obj_type, data):
                               file=sys.stderr)
                         _last_logged_intensities[mode] = faders
                     state["intensities"][mode] = faders
+                # Unlike intensities[mode] above, this isn't gated on a known mode -- it's the
+                # raw live value straight off the wire, not attributed to any particular
+                # intensity bank, so there's no "assumed mode" risk in setting it unconditionally.
+                state["physical_faders"] = faders
                 state["bumps"] = bumps
                 state["master"] = master
                 state["last_update"] = time.time()
@@ -130,7 +156,15 @@ def handle_payload(obj_type, data):
             if DEBUG:
                 print(f"[mode] t={time.time() - _t_start:7.3f}  "
                       f"{state['fader_mode']} -> {mode} (now confirmed)", file=sys.stderr)
-            update_state(fader_mode=mode, fader_mode_confirmed=True)
+            update = {"fader_mode": mode, "fader_mode_confirmed": True}
+            if mode == "MEMS":
+                page = sfl.decode_0x17_mems_page(data)
+                if page is not None:
+                    update["mems_page"] = page
+                    if DEBUG:
+                        print(f"[mems page] t={time.time() - _t_start:7.3f}  page={page}",
+                              file=sys.stderr)
+            update_state(**update)
     # Labels pages
     elif obj_type == 0x09:
         labels = sfl.decode_0x09_labels(data)
@@ -176,7 +210,7 @@ def handle_payload(obj_type, data):
                     state["independent_labels"].update(update["independent_labels"])
                     state["last_update"] = time.time()
                     state_condition.notify_all()
-    # Solo/Blackout indicators
+    # Solo/Blackout indicators, plus the 24 per-fader Bump-LED blocks in the same payload
     elif obj_type == 0x16:
         flags = sfl.decode_0x16_indicators(data)
         update = {k: v for k, v in (("solo", flags["solo"]), ("blackout", flags["blackout"]))
@@ -185,6 +219,14 @@ def handle_payload(obj_type, data):
             print(f"[solo/blackout] t={time.time() - _t_start:7.3f}  {update}", file=sys.stderr)
         if update:
             update_state(**update)
+        # Own state_condition block, not folded into `update` above -- that dict is only
+        # applied when solo/blackout actually changed, and coupling the fader-lights list to
+        # that truthiness would be incidental, not a designed guarantee.
+        lights = [sfl.decode_0x16_bump_catch(data, n) for n in range(1, 25)]
+        with state_condition:
+            state["physical_fader_lights"] = lights
+            state["last_update"] = time.time()
+            state_condition.notify_all()
 
     # Full intensity table snapshot (3x24) for all three intensity sub-modes at once, not just
     # the currently active one.
@@ -198,6 +240,18 @@ def handle_payload(obj_type, data):
             with state_condition:
                 for mode_name, intensities in all_modes.items():
                     state["intensities"][mode_name] = intensities
+                state["last_update"] = time.time()
+                state_condition.notify_all()
+    # MEMS memory ("Look") names, connect-time only -- see decode_0x00_memory_name in
+    # protocol.py for the confirmed record shape (page, slot, both 0-indexed).
+    elif obj_type == 0x00:
+        result = sfl.decode_0x00_memory_name(data)
+        if result is not None:
+            page, slot, lines = result
+            if DEBUG and any(lines):
+                print(f"[mems label] page={page + 1} slot={slot + 1}: {lines!r}", file=sys.stderr)
+            with state_condition:
+                state["labels"]["MEMS"].setdefault(page + 1, {})[slot + 1] = lines
                 state["last_update"] = time.time()
                 state_condition.notify_all()
 
