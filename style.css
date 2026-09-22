@@ -146,7 +146,14 @@ h1 {
 }
 .section.section-row .intensity-row,
 .section.section-row .special-row {
-  flex: 1 1 auto;
+  /* flex-basis 0, not auto: with auto, the outer flex layout would need this item's own
+     intrinsic/preferred size before it can assign a width -- for .special-row specifically,
+     that intrinsic-size pass needs to resolve its grid-template-columns' percentage-based
+     tracks, which in turn need .special-row's own (not-yet-known) width. That circularity is
+     what collapsed MASTER/BUMPS/IND 1/IND 2 to slivers: an indefinite percentage in that
+     situation resolves to 0 per spec. flex-basis:0 sidesteps it entirely -- flex-grow:1 just
+     takes 100% of the remaining space directly, with no intrinsic-size measurement needed. */
+  flex: 1 1 0;
   min-width: 0;
 }
 .intensity-row {
@@ -169,6 +176,31 @@ h1 {
   .intensity-row {
     grid-template-columns: repeat(12, minmax(0, 1fr));
   }
+}
+/* A caption bar visually tying two or more adjacent indicators together (e.g. "Focus" under
+   Pan+Tilt, "INDEPENDENTS" under IND 1/IND 2) -- generic, reusable in any CSS-grid row
+   (.intensity-row's PARAM 1/2 fader labels via computeLabelGroups() in index.html; .special-row's
+   static IND 1/IND 2 grouping). A .group-bar is just another item in that same grid, given an
+   explicit `grid-column: start / end` (in JS for the dynamic case, inline for the static one)
+   and no grid-row of its own -- since the row's own cells already occupy every column of row 1,
+   it auto-places into row 2, landing exactly below the columns it spans with no row-index
+   bookkeeping needed anywhere. Kept visually light (a thin top rule + small caption) rather
+   than a heavy filled bar, to read as "these belong together" without competing with the
+   meters themselves. */
+.group-bar {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+  padding-top: 3px;
+  border-top: 2px solid var(--text);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .meter {
   display: flex;
@@ -310,23 +342,36 @@ h1 {
   text-overflow: clip;
 }
 
+/* CSS grid, not flex: lets MASTER/BUMPS/IND 1/IND 2 share the exact same "append a .group-bar
+   with an explicit grid-column, no grid-row" mechanism as .intensity-row (see .group-bar
+   above) for the IND 1/IND 2 "INDEPENDENTS" caption -- a plain sibling .group-bar auto-places
+   into row 2 since row 1 is already fully occupied by the 4 items, no wrapper element needed.
+   (An earlier version wrapped IND 1/IND 2 in an extra flex container and passed their shared
+   width down via a CSS custom property -- broken, because a custom property's "%" is NOT
+   resolved at the element that declares it; it stays live text substituted at the point of
+   actual use, so it resolved against the wrapper's own near-empty width instead of
+   .special-row's, collapsing both to a sliver. Direct grid items sidestep that entirely.) */
 .special-row {
-  display: flex;
-  gap: 24px;
+  display: grid;
+  grid-template-columns: repeat(4, calc((100% - 138px) / 24));
+  gap: 6px;
 }
-.special-meter + .special-meter { margin-left: -18px; }
-.special-meter {
-  flex: 0 0 calc((100% - 138px) / 24);
-  width: calc((100% - 138px) / 24);
-}
+/* No width rule on .special-meter itself: the grid track above already sizes each column
+   correctly, and a grid item stretches to fill its track by default. An explicit width here
+   would be actively wrong under a grid parent, not just redundant -- "%" in a grid ITEM's own
+   width resolves against its grid CELL, not the container, so `calc((100% - 138px) / 24)`
+   would compute against a ~63px cell instead of .special-row's full width, going negative
+   (clamped ~0). That's exactly what broke MASTER/BUMPS/IND 1/IND 2 into slivers even after
+   fixing the .special-row circular-sizing issue below -- confirmed by measuring the actual
+   rendered grid-template-columns (63.3px per track, correct) vs. the item boxes (10px, wrong)
+   with Playwright before removing this. */
 /* Same breakpoint as .intensity-row's 24->12 wrap above: once an intensity-row column is one
    of 12 (11 gaps) instead of 24 (23 gaps), Master/Bumps need the matching 12-column width
    formula to stay the same size as Intensity 1/2 -- otherwise they'd still be sized for the
    24-wide row. */
 @media (max-width: 1600px) {
-  .special-meter {
-    flex: 0 0 calc((100% - 66px) / 12);
-    width: calc((100% - 66px) / 12);
+  .special-row {
+    grid-template-columns: repeat(4, calc((100% - 66px) / 12));
   }
 }
 .special-meter .fill.master { background: var(--master); }

@@ -74,6 +74,7 @@
           </div>
         </div>
       </div>
+      <div class="group-bar" style="grid-column: 3 / 5;">INDEPENDENTS</div>
     </div>
   </div>
 
@@ -197,18 +198,96 @@ function setName(container, lines) {
 // of clipping in the narrow 24-column layout -- pad3() below fills in any missing lines.
 // PARAM 2's list is a placeholder (same slot count as PARAM 1, all blank) for the console's
 // owner to fill in by hand once confirmed; leave PARAM_1_LABELS as the template to follow.
+
+const p1_f = "Focus";
+const p1_c = "Color";
+const p1_bc = "Beam Control";
+const p1_g1 = "Gobo 1";
+const p1_g2 = "Gobo 2";
+const p1_b = "Beam";
 const PARAM_1_LABELS = [
-  ["Intensity"], ["Focus", "Pan"], ["Focus", "Tilt"], ["Color", "Hue"], ["Color", "Sat"], ["Color", "Wheel 1"], ["Color", "Wheel 2"], ["Color", "Modify"],
-  ["Color", "Fx"], ["Strobe", "Shutter"], ["Beam Ctrl", "B1"], ["Beam Ctrl", "B2"], ["Gobo 1", "Select"], ["Gobo 1", "Index"], ["Gobo 1", "Rotate"], ["Gobo 1", "Mode"],
-  ["Gobo 2", "Select"], ["Gobo 2", "Index"], ["Gobo 2", "Rotate"], ["Gobo 2", "Mode"], ["Beam", "Zoom"], ["Beam", "Edge"], ["Beam", "Iris"], ["Beam", "Frost"],
+  ["Intensity"], [p1_f, "Pan"], [p1_f, "Tilt"], [p1_c, "Hue"], [p1_c, "Sat"], [p1_c, "Wheel 1"], [p1_c, "Wheel 2"], [p1_c, "Modify"],
+  [p1_c, "Fx"], ["Strobe/", "Shutter"], [p1_bc, "B1"], [p1_bc, "B2"], [p1_g1, "Select"], [p1_g1, "Index"], [p1_g1, "Rotate"], [p1_g1, "Mode"],
+  [p1_g2, "Select"], [p1_g2, "Index"], [p1_g2, "Rotate"], [p1_g2, "Mode"], [p1_b, "Zoom"], [p1_b, "Edge"], [p1_b, "Iris"], [p1_b, "Frost"],
 ];
-const PARAM_2_LABELS = Array.from({ length: 24 }, () => []);
-const INTENSITY_LABEL_PREFIX = { "INT A": "Int A", "INT B": "Int B", "INT DEV": "Int D" };
+const p2_ua = "User Attributes";
+const p2_b = "Beam";
+const p2_scb = "Shutter Cuts / Barndoors";
+const p2_ma = "Macro / Animates";
+const PARAM_2_LABELS = [
+  [p2_ua, "U1"], [p2_ua, "U2"], [p2_ua, "U3"], [p2_ua, "U4"], [p2_ua, "U5"], [p2_ua, "U6"], [p2_ua, "U7"], [p2_ua, "U8"],
+  [p2_b, "Fx 1"], [p2_b, "Fx 1 Mod"], [p2_b, "Fx 2"], [p2_b, "Fx 2 Mod"], [p2_scb, "1 A"], [p2_scb, "1 B"], [p2_scb, "2 A"], [p2_scb, "2 B"],
+  [p2_scb, "3 A"], [p2_scb, "3 B"], [p2_scb, "4 A"], [p2_scb, "4 B"], [p2_scb, "Rotate"], [p2_ma, "1"], [p2_ma, "2"], [p2_ma, "3"], 
+];
 
 function pad3(lines) {
   return [lines?.[0] || "", lines?.[1] || "", lines?.[2] || ""];
 }
 
+// Generic: derives visual groups from a set of 1-indexed 3-line labels, by finding runs of
+// consecutive entries that share the same first line -- e.g. PARAM_1_LABELS' ["Focus","Pan"]
+// and ["Focus","Tilt"] are consecutive and share "Focus", so they become one 2-wide group
+// without a separate group definition to keep in sync by hand. A run only becomes a group if
+// it's at least 2 items AND its shared key is non-empty -- a lone item (e.g. "Intensity",
+// "Strobe") doesn't need a caption to group it with anything, and PARAM_2_LABELS' still-blank
+// entries (first line "") must never be treated as one giant 24-wide group.
+// Returns [{label, start, end}], both 1-indexed inclusive, in column order.
+function computeLabelGroups(labels) {
+  const groups = [];
+  let i = 0;
+  while (i < labels.length) {
+    const key = labels[i]?.[0] || "";
+    let j = i;
+    while (j < labels.length && (labels[j]?.[0] || "") === key) j++;
+    if (key && j - i >= 2) groups.push({ label: key, start: i + 1, end: j });
+    i = j;
+  }
+  return groups;
+}
+
+// Generic: (re)draws a row's group-bar captions from a [{label, start, end}] list (1-indexed
+// inclusive column range) -- removes whatever was there before (so this is safe to call again
+// whenever the applicable groups change, e.g. a mode switch) and appends one .group-bar per
+// group, spanning its columns. No grid-row is set: with the row's cells already occupying every
+// column of row 1, a .group-bar with no row of its own auto-places into the next row down,
+// landing directly under the cells it spans without any row-index bookkeeping here.
+function renderGroupBars(containerEl, groups) {
+  containerEl.querySelectorAll(".group-bar").forEach(el => el.remove());
+  for (const g of groups) {
+    const bar = document.createElement("div");
+    bar.className = "group-bar";
+    bar.style.gridColumn = `${g.start} / ${g.end + 1}`;
+    bar.textContent = g.label;
+    containerEl.appendChild(bar);
+  }
+}
+
+// Computed once (PARAM_1_LABELS/PARAM_2_LABELS don't change at runtime) so both the group-bar
+// row and each individual fader label can agree on exactly which faders are actually grouped,
+// without recomputing/duplicating that logic in two places.
+const PARAM_GROUPS = { "PARAM 1": computeLabelGroups(PARAM_1_LABELS), "PARAM 2": computeLabelGroups(PARAM_2_LABELS) };
+
+// A ["Group","Item"] entry's group name is already shown once, in the group-bar underneath the
+// whole group -- repeating it on every member fader's own label too (the original behavior)
+// just says "Focus" four times over for a 2-wide Focus group. So when this fader is actually
+// part of a group (checked against the same PARAM_GROUPS used to draw the bars, not just
+// "does this entry have a 2nd word" -- see below for why that distinction matters), only the
+// distinguishing 2nd word is shown here. A solo entry (e.g. ["Strobe","Shutter"]) that ISN'T
+// part of any real group -- computeLabelGroups only forms a group from >=2 consecutive
+// same-key entries, so a lone 2-word entry never gets a group-bar of its own -- keeps showing
+// both words exactly as before, since there's no group-bar standing in for the first one.
+function paramFaderLabel(mode, i, entry) {
+  const inGroup = PARAM_GROUPS[mode].some(g => i >= g.start && i <= g.end);
+  if (!inGroup) return pad3(entry);
+  return [entry?.[1] || entry?.[0] || "", "", ""];
+}
+
+// INT A/INT B/INT DEV show the same patched channel name as that mode's own detail row below
+// (state.labels[mode][i], decode_0x09_labels in protocol.py) instead of a generic "Int A:1" --
+// fader N always means "channel N of this mode" so the generic label was pure redundancy once
+// the real name is known; left blank (not a "?" placeholder) when the console hasn't sent a
+// name for that slot, since an unnamed channel isn't an error state, just unlabeled.
+//
 // MEMS's per-fader names come from the console's own memory ("Look") names -- decoded by
 // decode_0x00_memory_name in protocol.py and fed into state.labels["MEMS"][page][slot]
 // (both 1-indexed) by server.py. MEMS has (at least) 4 memory pages -- hold the MEMS button,
@@ -218,12 +297,11 @@ function pad3(lines) {
 // (traces/mems_names_page1-2-3.log: "page2 mem1" decoded at page 2 slot 1, self-describing by
 // design) -- so unlike the earlier page-1-only guess, this now looks up the label under
 // whichever page is actually current.
-function physicalFaderLabelLines(mode, i, memsLabels, memsPage) {
-  const prefix = INTENSITY_LABEL_PREFIX[mode];
-  if (prefix) return [`${prefix}:${i}`, "", ""];
-  if (mode === "PARAM 1") return pad3(PARAM_1_LABELS[i - 1]);
-  if (mode === "PARAM 2") return pad3(PARAM_2_LABELS[i - 1]);
-  if (mode === "MEMS") return memsLabels?.[memsPage]?.[i] || ["?", "", ""];
+function physicalFaderLabelLines(mode, i, labels, memsPage) {
+  if (MODES.includes(mode)) return labels?.[mode]?.[i] || ["", "", ""];
+  if (mode === "PARAM 1") return paramFaderLabel(mode, i, PARAM_1_LABELS[i - 1]);
+  if (mode === "PARAM 2") return paramFaderLabel(mode, i, PARAM_2_LABELS[i - 1]);
+  if (mode === "MEMS") return labels?.["MEMS"]?.[memsPage]?.[i] || ["?", "", ""];
   return ["", "", ""];
 }
 
@@ -280,10 +358,10 @@ function faderColor(mode, value) {
 // {"blinking": true, "value_a": 0-255, "value_b": 0-255} (fader hasn't caught its stored value
 // yet -- the console's own Bump LED is genuinely flashing between these two brightness levels)
 // or {"blinking": false, "value": 0-255} (solid, latched/at rest).
-function setPhysicalFader(i, value, light, mode, memsLabels, memsPage) {
+function setPhysicalFader(i, value, light, mode, labels, memsPage) {
   const meterEl = document.getElementById("physfader-" + i);
   setBar(meterEl, value, true);
-  setName(meterEl, physicalFaderLabelLines(mode, i, memsLabels, memsPage));
+  setName(meterEl, physicalFaderLabelLines(mode, i, labels, memsPage));
   const lightEl = document.getElementById("physfader-" + i + "-light");
   lightEl.classList.toggle("placeholder", light == null);
   if (light && light.blinking) {
@@ -298,6 +376,7 @@ function setPhysicalFader(i, value, light, mode, memsLabels, memsPage) {
 }
 
 let lastUpdate = 0;
+let lastFaderGroupMode = null;
 
 function render(state) {
   const dot = document.getElementById("dot");
@@ -331,7 +410,16 @@ function render(state) {
 
   for (let i = 1; i <= 24; i++) {
     setPhysicalFader(i, state.physical_faders?.[i - 1] ?? 0, state.physical_fader_lights?.[i - 1],
-      state.fader_mode, state.labels?.["MEMS"], state.mems_page);
+      state.fader_mode, state.labels, state.mems_page);
+  }
+  // Only PARAM 1/2 have groupable labels (a shared first word across consecutive faders) --
+  // INT A/B/DEV show real patched channel names (nothing to group) and MEMS's are free-form
+  // memory names. Recomputed only when the mode actually changes, not on every render tick --
+  // PARAM_GROUPS is static, never depends on live state. Same PARAM_GROUPS paramFaderLabel()
+  // uses, so the bar and the per-fader labels can never disagree about what's grouped.
+  if (state.fader_mode !== lastFaderGroupMode) {
+    lastFaderGroupMode = state.fader_mode;
+    renderGroupBars(document.getElementById("physical-faders"), PARAM_GROUPS[state.fader_mode] || []);
   }
 
   setIndependent(document.getElementById("ind1"), document.getElementById("ind-1"),
