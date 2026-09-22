@@ -19,7 +19,7 @@ traces could be matched to a specific action.
 | [`protocol.py`](protocol.py) | Shared library: USB framing, the idle-poll/announce/ack handshake, and decoders for every known message type. Everything else imports this rather than re-deriving the protocol. |
 | [`listen.py`](listen.py) | Terminal tool — connects and prints every control change live until Ctrl+C. |
 | [`server.py`](server.py) | Local web app — polls the console in a background thread and serves [`index.html`](index.html) over Server-Sent Events, so a browser tab shows live values. |
-| [`index.html`](index.html) | Static single-page UI for `server.py`: fader bars (INT A / INT B / DEVICE INT), Master, Bumps, Independents, Solo/BlackOut. |
+| [`index.html`](index.html) | Static single-page UI for `server.py`: intensity meters (INT A / INT B / DEVICE INT), Master, Bumps, Independents, Solo/BlackOut. |
 | [`requirements.txt`](requirements.txt) | Python package dependencies (`pip3 install -r requirements.txt`). |
 
 ## Requirements

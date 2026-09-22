@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Minimal local web app showing live console fader values.
+Minimal local web app showing live console state: the 24 physical faders'
+current output, plus the console's per-mode intensity memory.
 
 Run:
     python3 consolelink/server.py [--debug] [--capture PATH]
@@ -20,11 +21,15 @@ re-deriving it -- see that module's docstring for the
 wire-protocol details (idle poll, announce/ack handshake, request_type(),
 type=0x0e/0x17 decoding).
 
-Shows: Fader 1-24 under each of the three known fader modes (INT A, INT B,
-DEVICE INT -- these are the SAME 24 physical faders, re-labeled depending on
-which mode is currently active on the console), plus Master and Bumps.
-Independent 1/2, per the manual, are toggle/bump buttons (not faders) --
-shown as lights, decoded from type=0x0c.
+Shows: the per-slot Intensity values (INT A, INT B, DEVICE INT) for all 24
+fader slots -- these are the console's stored intensity levels, not raw
+physical fader positions. Only whichever mode is currently active on the
+console's fader-mode selector reflects live physical fader movement
+(type=0x0e); the other two rows come from the console's separately
+maintained intensity memory (type=0x0f) and only change when a fader is
+moved while that mode is active. Plus Master (a real physical fader) and
+Bumps. Independent 1/2, per the manual, are toggle/bump buttons (not
+faders) -- shown as lights, decoded from type=0x0c.
 """
 import argparse
 import json
@@ -48,15 +53,15 @@ STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
 # despite sharing the same protocol code. Set from args in main().
 CAPTURE_PATH = ""
 
-FADER_MODES = ("INT A", "INT B", "DEVICE INT")  # modes with a decoded live fader bank (type=0x0e/0x0f)
-ALL_FADER_MODES = FADER_MODES + ("PARAM 1", "PARAM 2", "MEMS")  # every mode type=0x17 can report
+INTENSITY_MODES = ("INT A", "INT B", "DEVICE INT")  # sub-modes with a decoded intensity bank (type=0x0e/0x0f)
+ALL_FADER_MODES = INTENSITY_MODES + ("PARAM 1", "PARAM 2", "MEMS")  # every mode the physical fader-mode selector (type=0x17) can report
 
 state = {
     "connected": False,
     "fader_mode": "INT A",
     "fader_mode_confirmed": False,  # False = assumed default, never actually seen a type=0x17
-    "faders": {mode: [0] * 24 for mode in FADER_MODES},
-    "labels": {mode: {} for mode in FADER_MODES},
+    "intensities": {mode: [0] * 24 for mode in INTENSITY_MODES},
+    "labels": {mode: {} for mode in INTENSITY_MODES},
     "independent_labels": {},
     "bumps": 0,
     "master": 0,
@@ -85,7 +90,7 @@ def update_state(**kwargs):
 # main().
 DEBUG = False
 _last_logged_master = None
-_last_logged_faders = {mode: [0] * 24 for mode in FADER_MODES}
+_last_logged_intensities = {mode: [0] * 24 for mode in INTENSITY_MODES}
 _t_start = time.time()
 
 def handle_payload(obj_type, data):
@@ -101,14 +106,14 @@ def handle_payload(obj_type, data):
                 _last_logged_master = master
             with state_condition:
                 mode = state["fader_mode"]
-                if DEBUG and faders != _last_logged_faders[mode]:
-                    changed = {i + 1: (_last_logged_faders[mode][i], v)
-                               for i, v in enumerate(faders) if v != _last_logged_faders[mode][i]}
-                    print(f"[faders:{mode}] t={time.time() - _t_start:7.3f}  "
+                if DEBUG and faders != _last_logged_intensities[mode]:
+                    changed = {i + 1: (_last_logged_intensities[mode][i], v)
+                               for i, v in enumerate(faders) if v != _last_logged_intensities[mode][i]}
+                    print(f"[intensity:{mode}] t={time.time() - _t_start:7.3f}  "
                           f"confirmed={state['fader_mode_confirmed']}  changed={changed}",
                           file=sys.stderr)
-                    _last_logged_faders[mode] = faders
-                state["faders"][mode] = faders
+                    _last_logged_intensities[mode] = faders
+                state["intensities"][mode] = faders
                 state["bumps"] = bumps
                 state["master"] = master
                 state["last_update"] = time.time()
@@ -132,10 +137,10 @@ def handle_payload(obj_type, data):
                 for family, index, lines in received:
                     print(f"[label] {family} {index}: {lines!r}", file=sys.stderr)
             with state_condition:
-                for mode in FADER_MODES:
+                for mode in INTENSITY_MODES:
                     state["labels"][mode].update(labels.get(mode, {}))
                 # independent_labels feeds the IND 1/2 button's 3-line name block, same as the
-                # fader rows -- kept as [line1, line2, line3], not joined into one string.
+                # intensity rows -- kept as [line1, line2, line3], not joined into one string.
                 state["independent_labels"].update(labels.get("Independent", {}))
                 state["last_update"] = time.time()
                 state_condition.notify_all()
@@ -150,7 +155,7 @@ def handle_payload(obj_type, data):
             update["independent2_clicked"] = entries[2][0]
             update["independent2"] = entries[2][1]
         # entries[n][2] is [line1, line2, line3] (same 3-line shape decode_0x09_labels uses)
-        # -- kept as-is, not joined, so the UI can show 3 lines like the fader rows do.
+        # -- kept as-is, not joined, so the UI can show 3 lines like the intensity rows do.
         if 1 in entries and any(entries[1][2]):
             update.setdefault("independent_labels", {})
             update["independent_labels"][1] = entries[1][2]
@@ -176,17 +181,18 @@ def handle_payload(obj_type, data):
         if update:
             update_state(**update)
 
-    # Full faders snapshot (3x24) for all three fader modes at once, not just the currently active one.
+    # Full intensity table snapshot (3x24) for all three intensity sub-modes at once, not just
+    # the currently active one.
     elif obj_type == 0x0f:
         # Unlike 0x0e (mode-agnostic -- only ever reports whichever fader mode is currently
-        # active), this holds all three fader-mode banks at once, so the
+        # active), this holds all three intensity banks at once, so the
         # OTHER two modes' rows (the dimmed ones in the UI) get real data too, not just
         # whatever they were last set to while they happened to be active.
         all_modes = sfl.decode_0x0f_all_modes(data)
         if all_modes is not None:
             with state_condition:
-                for mode_name, faders in all_modes.items():
-                    state["faders"][mode_name] = faders
+                for mode_name, intensities in all_modes.items():
+                    state["intensities"][mode_name] = intensities
                 state["last_update"] = time.time()
                 state_condition.notify_all()
 
@@ -260,7 +266,7 @@ def poll_forever(stop_event):
         elif DEBUG:
             print("[webapp] proactive 0x0e request got no reply", file=sys.stderr)
 
-        # type=0x0f holds all three fader-mode banks at once -- this is what actually gets
+        # type=0x0f holds all three intensity banks at once -- this is what actually gets
         # INT B/DEVICE INT populated on connect too, not just whichever mode happens to be
         # active (found live: "only intensity A are read at startup" persisted even after the
         # mode-ordering fix above, because that fix only affects 0x0e, which is mode-agnostic
@@ -476,7 +482,8 @@ class QuietThreadingHTTPServer(ThreadingHTTPServer):
 
 def main():
     global DEBUG, CAPTURE_PATH
-    parser = argparse.ArgumentParser(description="Local web app showing live console fader values.")
+    parser = argparse.ArgumentParser(
+        description="Local web app showing live console state (physical faders + per-mode intensities).")
     parser.add_argument("--debug", action="store_true",
                          help="Per-control change logging to stderr, plus a liveness "
                               "heartbeat and handshake diagnostics.")

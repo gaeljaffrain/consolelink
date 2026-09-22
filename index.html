@@ -19,7 +19,7 @@
   <div class="section section-row" id="section-master-bumps">
     <div class="section-title">MAIN</div>
     <div class="special-row">
-      <div class="fader special-fader" id="fader-master">
+      <div class="meter special-meter" id="fader-master">
         <div class="number">MASTER</div>
         <div class="value-row">
           <div class="track"><div class="fill master" style="height:0%"></div></div>
@@ -31,7 +31,7 @@
           </div>
         </div>
       </div>
-      <div class="fader special-fader" id="fader-bumps">
+      <div class="meter special-meter" id="bumps">
         <div class="number">BUMPS</div>
         <div class="value-row">
           <div class="track"><div class="fill bumps" style="height:0%"></div></div>
@@ -43,7 +43,7 @@
           </div>
         </div>
       </div>
-      <div class="fader special-fader" id="fader-ind1">
+      <div class="meter special-meter" id="ind1">
         <div class="number">IND 1</div>
         <div class="value-row">
           <div class="track"><div class="fill ind" style="height:0%"></div></div>
@@ -59,7 +59,7 @@
           </div>
         </div>
       </div>
-      <div class="fader special-fader" id="fader-ind2">
+      <div class="meter special-meter" id="ind2">
         <div class="number">IND 2</div>
         <div class="value-row">
           <div class="track"><div class="fill ind" style="height:0%"></div></div>
@@ -80,17 +80,17 @@
 
   <div class="section section-row" id="section-INT A">
     <div class="section-title">INT A <span class="active-badge" style="display:none">Active</span></div>
-    <div class="fader-row" id="faders-INT A"></div>
+    <div class="intensity-row" id="intensities-INT A"></div>
   </div>
 
   <div class="section section-row" id="section-INT B">
     <div class="section-title">INT B <span class="active-badge" style="display:none">Active</span></div>
-    <div class="fader-row" id="faders-INT B"></div>
+    <div class="intensity-row" id="intensities-INT B"></div>
   </div>
 
   <div class="section section-row" id="section-DEVICE INT">
     <div class="section-title">INT DEV <span class="active-badge" style="display:none">Active</span></div>
-    <div class="fader-row" id="faders-DEVICE INT"></div>
+    <div class="intensity-row" id="intensities-DEVICE INT"></div>
   </div>
 
 <script>
@@ -104,12 +104,12 @@ const MODE_PILL_CLASS = {
   "MEMS": "active-M",
 };
 
-function buildFaders(mode) {
-  const row = document.getElementById("faders-" + mode);
+function buildIntensityMeters(mode) {
+  const row = document.getElementById("intensities-" + mode);
   for (let i = 1; i <= 24; i++) {
     const f = document.createElement("div");
-    f.className = "fader";
-    f.id = "fader-" + mode + "-" + i;
+    f.className = "meter";
+    f.id = "intensity-" + mode + "-" + i;
     f.innerHTML = `
       <div class="number">${i}</div>
       <div class="value-row">
@@ -124,7 +124,7 @@ function buildFaders(mode) {
     row.appendChild(f);
   }
 }
-MODES.forEach(buildFaders);
+MODES.forEach(buildIntensityMeters);
 
 function pct(v) { return Math.round((v / 255) * 100); }
 
@@ -134,12 +134,13 @@ function pctLabel(v) {
   return p === 100 ? "F" : String(p);
 }
 
-// hideZero: for the 24-fader INT A/B/DEV rows, a 0 value is left blank rather than printed
-// as "0" -- with 24 columns per row, scanning for the nonzero ones (which dimmer/device is
-// actually on) is much faster when the many zeros don't visually compete with them. Master/
-// Bumps/Independents always show their number, even at 0 -- there's only one of each, so
-// there's no scanning problem to solve, and always-blank-at-0 would just look broken there.
-function setFader(el, value, hideZero) {
+// hideZero: for the 24-cell INT A/B/DEV intensity rows, a 0 value is left blank rather than
+// printed as "0" -- with 24 columns per row, scanning for the nonzero ones (which dimmer/
+// device is actually on) is much faster when the many zeros don't visually compete with
+// them. Master/Bumps/Independents always show their number, even at 0 -- there's only one of
+// each, so there's no scanning problem to solve, and always-blank-at-0 would just look broken
+// there.
+function setBar(el, value, hideZero) {
   if (!el) return;
   const fill = el.querySelector(".fill");
   const val = el.querySelector(".val");
@@ -173,15 +174,15 @@ function setIndicator(el, state, keepLabel) {
   }
 }
 
-// IND 1/2 are a fader (live 0-255 value, like Master/Bumps) plus a click button showing the
-// Independent's patched name. `value` and `clicked` are two genuinely separate bits on the
-// wire (confirmed against a real capture): `value` is a stored/preset level that stays
-// constant regardless of click state -- it does NOT drop to 0 on its own -- while `clicked`
-// is whether that level is currently reaching output. So the bar shows `clicked ? value : 0`,
-// the same "stored level only reaches output while engaged" pattern already confirmed for
-// Bump buttons, not the raw value unconditionally.
-function setIndependent(faderEl, btnEl, value, clicked, lines) {
-  setFader(faderEl, (value === null || clicked !== true) ? 0 : value, true);
+// IND 1/2 show a live 0-255 value, like Master/Bumps -- via the same generic bar widget --
+// plus a click button showing the Independent's patched name. `value` and `clicked` are two
+// genuinely separate bits on the wire (confirmed against a real capture): `value` is a
+// stored/preset level that stays constant regardless of click state -- it does NOT drop to 0
+// on its own -- while `clicked` is whether that level is currently reaching output. So the
+// bar shows `clicked ? value : 0`, the same "stored level only reaches output while engaged"
+// pattern already confirmed for Bump buttons, not the raw value unconditionally.
+function setIndependent(meterEl, btnEl, value, clicked, lines) {
+  setBar(meterEl, (value === null || clicked !== true) ? 0 : value, true);
   const known = clicked !== null;
   btnEl.classList.toggle("placeholder", !known);
   btnEl.classList.toggle("on", known && clicked === true);
@@ -207,19 +208,19 @@ function render(state) {
     badge.style.display = isActive ? "inline-block" : "none";
     document.getElementById("section-" + mode).classList.toggle("dim", !isActive);
     for (let i = 1; i <= 24; i++) {
-      const el = document.getElementById("fader-" + mode + "-" + i);
-      setFader(el, state.faders[mode][i - 1], true);
+      const el = document.getElementById("intensity-" + mode + "-" + i);
+      setBar(el, state.intensities[mode][i - 1], true);
       el.querySelector(".number").textContent = String(i);
       setName(el, state.labels?.[mode]?.[i]);
     }
   });
 
-  setFader(document.getElementById("fader-master"), state.master);
-  setFader(document.getElementById("fader-bumps"), state.bumps);
+  setBar(document.getElementById("fader-master"), state.master);
+  setBar(document.getElementById("bumps"), state.bumps);
 
-  setIndependent(document.getElementById("fader-ind1"), document.getElementById("ind-1"),
+  setIndependent(document.getElementById("ind1"), document.getElementById("ind-1"),
     state.independent1, state.independent1_clicked, state.independent_labels?.[1]);
-  setIndependent(document.getElementById("fader-ind2"), document.getElementById("ind-2"),
+  setIndependent(document.getElementById("ind2"), document.getElementById("ind-2"),
     state.independent2, state.independent2_clicked, state.independent_labels?.[2]);
   setIndicator(document.getElementById("ind-solo"), state.solo, true);
   setIndicator(document.getElementById("ind-blackout"), state.blackout, true);
@@ -228,7 +229,7 @@ function render(state) {
 }
 
 // Pushed via Server-Sent Events rather than polled: every state change the server
-// decodes is sent immediately, so no fader update is silently skipped between polls.
+// decodes is sent immediately, so no update is silently skipped between polls.
 function connect() {
   const es = new EventSource("/api/events");
   es.onmessage = (ev) => render(JSON.parse(ev.data));

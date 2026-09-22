@@ -124,10 +124,10 @@ def main():
         elif obj_type == 0x0f:
             all_modes = sfl.decode_0x0f_all_modes(data)
             if all_modes is not None:
-                for mode_name, faders in all_modes.items():
-                    for i, v in enumerate(faders):
+                for mode_name, intensities in all_modes.items():
+                    for i, v in enumerate(intensities):
                         if v:
-                            show(f"{mode_name}.Fader{i + 1}", v)
+                            show(f"{mode_name}.Intensity{i + 1}", v)
         elif obj_type == 0x28:
             pass  # announces are handled inline in the main loop, nothing to show here
         elif obj_type in sfl.KNOWN_UNDECODED_TYPES:
@@ -158,7 +158,7 @@ def main():
         log_capture("requested", req_type, req_data)
         handle_payload(req_type, req_data)
 
-    # type=0x0f holds all three fader-mode banks at once -- unlike 0x0e, this doesn't need the
+    # type=0x0f holds all three intensity banks at once -- unlike 0x0e, this doesn't need the
     # mode known ahead of time, and gets every mode's live values right away instead of just
     # whichever mode happens to be active.
     all_type, all_data = link.request_type(0x0f)

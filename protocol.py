@@ -35,8 +35,10 @@ Decodes:
     whatever's on a fader regardless of which fader mode is active: a
     fader's raw value means different things (an INT A level, an INT B
     level, a device intensity, ...) depending on type=0x17 below.
-  - type=0x0f (75 bytes): unlike 0x0e, holds all three fader-mode banks at
-    once -- `[header:1][INT A: 24][INT B: 24][DEVICE INT: 24]`.
+  - type=0x0f (75 bytes): the stored intensity table -- unlike 0x0e (which
+    only ever reports whichever fader mode is physically active), this holds
+    all three intensity sub-mode banks (INT A/INT B/DEVICE INT) at once --
+    `[header:1][INT A: 24][INT B: 24][DEVICE INT: 24]`.
   - type=0x11 (209 bytes): Crossfader Live, Crossfader Next.
   - type=0x15 (81 bytes): the console's two physical LCDs, verbatim ASCII --
     1 marker byte + 80 characters (2 displays x 2 lines x 20 chars). This is
@@ -77,8 +79,8 @@ IO_TIMEOUT_MS = 200
 # 0x00: constant ~195-byte payload, unrelated to any specific control (seen live, not yet in
 #       any pcap capture) -- possibly a periodic status/heartbeat block.
 # 0x0d: correlated sibling of 0x0e, ~1026 bytes -- still not decoded (0x0f, its other sibling,
-#       IS decoded: it's the same per-fader data as 0x0d but for all three fader modes at once
-#       rather than just the active one, see decode_0x0f_all_modes -- 0x0d is presumably a
+#       IS decoded: it's the same per-slot intensity data as 0x0d but for all three intensity
+#       sub-modes at once, see decode_0x0f_all_modes -- 0x0d is presumably a
 #       similarly richer/differently-scaled version, not yet worked out).
 # 0x10: ~1026 bytes, same data[0]=0x04 header convention as 0x0d -- likely a sibling of 0x11
 #       (crossfaders) the same way 0x0d is a sibling of 0x0e. Seen live, not yet in a pcap capture.
@@ -286,17 +288,17 @@ def decode_0x09_labels(data):
 
 
 def decode_0x0f_all_modes(data):
-    """type=0x0f (75 bytes): unlike type=0x0e (mode-agnostic -- only ever reports whichever
-    fader mode is CURRENTLY active), this holds all three fader-mode banks
-    simultaneously. The console has to keep this internally regardless -- switching modes
-    instantly redisplays a completely different set of 24 values, which couldn't happen if
-    the non-active modes' values weren't stored somewhere. Layout: `[header:1][INT A: 24]
-    [INT B: 24][DEVICE INT: 24][+2 more bytes, likely Bumps/Master -- not decoded here since
-    type=0x0e already covers those]`. Confirmed live: set fader 1 to three distinct, known
-    values across all three modes (39%/66%/21% -> raw 100/168/53) and found all three at
-    offsets 1, 25, 49 -- exactly 24 apart.
-    Returns {"INT A": [24 raw values], "INT B": [...], "DEVICE INT": [...]}, or None if data
-    is too short.
+    """type=0x0f (75 bytes): the stored intensity table. Unlike type=0x0e (mode-agnostic --
+    only ever reports whichever fader mode is CURRENTLY active), this holds all three
+    intensity sub-mode banks simultaneously. The console has to keep this internally
+    regardless -- switching modes instantly redisplays a completely different set of 24
+    values, which couldn't happen if the non-active sub-modes' values weren't stored
+    somewhere. Layout: `[header:1][INT A: 24][INT B: 24][DEVICE INT: 24][+2 more bytes,
+    likely Bumps/Master -- not decoded here since type=0x0e already covers those]`. Confirmed
+    live: set fader 1 to three distinct, known values across all three modes (39%/66%/21% ->
+    raw 100/168/53) and found all three at offsets 1, 25, 49 -- exactly 24 apart.
+    Returns {"INT A": [24 raw intensity values], "INT B": [...], "DEVICE INT": [...]}, or
+    None if data is too short.
     """
     if len(data) < 73:
         return None

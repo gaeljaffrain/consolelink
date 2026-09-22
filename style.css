@@ -15,13 +15,13 @@
   /* SmartFadeML style colors */
   --master: #5647f4;
   --bumps: #808080;
-  --greenfader: #d3f8b5;
+  --accent-green: #d3f8b5;
   --whitebutton: #ffffff;
   --blink-duration: 0.5s;
 }
-/* Below this window width, each 24-fader row wraps into two rows of 12 (see the
-   @media rule right after .fader-row's definition, below, for the actual breakpoint --
-   it has to live there so it wins the cascade over .fader-row's unconditional rule). */
+/* Below this window width, each 24-cell intensity row wraps into two rows of 12 (see the
+   @media rule right after .intensity-row's definition, below, for the actual breakpoint --
+   it has to live there so it wins the cascade over .intensity-row's unconditional rule). */
 * { box-sizing: border-box; }
 body {
   margin: 0;
@@ -31,7 +31,7 @@ body {
   padding: 20px 24px 40px;
 }
 /* Below 900px, stop reflowing/shrinking further (values were getting clipped past that
-   point, see the 12-per-row .fader-row comment above) -- hold the page at a fixed 900px and
+   point, see the 12-per-row .intensity-row comment above) -- hold the page at a fixed 900px and
    let the browser's own horizontal scrollbar handle anything narrower. */
 body {
   min-width: 900px;
@@ -75,11 +75,11 @@ h1 {
   padding: 3px 12px;
   font-weight: 600;
 }
-.mode-pill.active-A { color: var(--greenfader); }
-.mode-pill.active-B { color: var(--greenfader); }
-.mode-pill.active-D { color: var(--greenfader); }
-.mode-pill.active-P1 { color: var(--greenfader); }
-.mode-pill.active-P2 { color: var(--greenfader); }
+.mode-pill.active-A { color: var(--accent-green); }
+.mode-pill.active-B { color: var(--accent-green); }
+.mode-pill.active-D { color: var(--accent-green); }
+.mode-pill.active-P1 { color: var(--accent-green); }
+.mode-pill.active-P2 { color: var(--accent-green); }
 .mode-pill.active-M { color: #ff0000; }
 .mode-pill.unconfirmed { opacity: 0.55; font-style: italic; }
 
@@ -102,7 +102,7 @@ h1 {
 }
 .section-title .active-badge {
   font-size: 10px;
-  background: var(--greenfader);
+  background: var(--accent-green);
   color: #0b0c0e;
   border-radius: 4px;
   padding: 1px 6px;
@@ -112,8 +112,8 @@ h1 {
 }
 .section.dim .section-title { opacity: 0.6; }
 
-/* INT A/B/DEV sections only: title as a left column instead of a row above the faders,
-   so each row is shorter vertically. */
+/* INT A/B/DEV sections only: title as a left column instead of a row above the intensity
+   meters, so each row is shorter vertically. */
 .section.section-row {
   display: flex;
   align-items: center;
@@ -126,12 +126,12 @@ h1 {
   gap: 3px;
   margin-bottom: 0;
 }
-.section.section-row .fader-row,
+.section.section-row .intensity-row,
 .section.section-row .special-row {
   flex: 1 1 auto;
   min-width: 0;
 }
-.fader-row {
+.intensity-row {
   display: grid;
   /* minmax(0, 1fr), not plain 1fr: a bare 1fr track won't shrink below its content's natural
      min-content width, which defeats the narrow-width wrap below -- minmax(0, 1fr) is what
@@ -144,14 +144,15 @@ h1 {
      page. */
   overflow-x: auto;
 }
-/* Tune this px value to change when the 24-fader rows wrap into two rows of 12 (narrow Mac
-   windows / phone screens). Must stay below .fader-row above so it wins the cascade. */
+/* Tune this px value to change when the 24-cell intensity rows wrap into two rows of 12
+   (narrow Mac windows / phone screens). Must stay below .intensity-row above so it wins the
+   cascade. */
 @media (max-width: 1600px) {
-  .fader-row {
+  .intensity-row {
     grid-template-columns: repeat(12, minmax(0, 1fr));
   }
 }
-.fader {
+.meter {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -166,7 +167,7 @@ h1 {
      size -- clip rather than let it bleed into neighboring columns. */
   overflow: hidden;
 }
-.fader .track {
+.meter .track {
   width: 100%;
   height: 60px;
   background: #0e0f12;
@@ -179,16 +180,16 @@ h1 {
   margin-top: 0;
   flex-shrink: 0;
 }
-.fader .fill {
+.meter .fill {
   width: 100%;
   background: linear-gradient(180deg, var(--bar), #1f5c96);
   height: 0%;
   transition: height 80ms linear;
 }
-.fader.nonzero .fill { background: #d3f8b5; }
-.fader .val {
+.meter.nonzero .fill { background: #d3f8b5; }
+.meter .val {
   font-size: 10px;
-  color: var(--greenfader);
+  color: var(--accent-green);
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
   flex-shrink: 0;
@@ -196,8 +197,8 @@ h1 {
   margin-top: 4px;
   height: 1.1em;
 }
-.fader .number,
-.fader .name {
+.meter .number,
+.meter .name {
   font-size: 9px;
   color: var(--dim);
   line-height: 1.2;
@@ -208,14 +209,14 @@ h1 {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.fader .number {
+.meter .number {
   height: 1.2em;
 }
 
-/* INT A/B/DEV faders and Master/Bumps (.special-fader) share this compact layout: the
-   number/label as a header above a narrow bar, and a large value readout next to it. */
-.fader-row .fader .number,
-.special-fader .number {
+/* INT A/B/DEV intensity meters and Master/Bumps (.special-meter) share this compact layout:
+   the number/label as a header above a narrow bar, and a large value readout next to it. */
+.intensity-row .meter .number,
+.special-meter .number {
   font-size: 15px;
   font-weight: 700;
   color: var(--text);
@@ -225,8 +226,8 @@ h1 {
   line-height: 1.5;
   margin-bottom: 4px;
 }
-.fader-row .fader .value-row,
-.special-fader .value-row {
+.intensity-row .meter .value-row,
+.special-meter .value-row {
   display: flex;
   align-items: flex-end;
   justify-content: flex-start;
@@ -234,16 +235,16 @@ h1 {
   width: 100%;
   height: 60px;
 }
-.fader-row .fader .track,
-.special-fader .track {
+.intensity-row .meter .track,
+.special-meter .track {
   width: 16px;
   flex: 0 0 16px;
 }
-.fader-row .fader .val,
-.special-fader .val {
+.intensity-row .meter .val,
+.special-meter .val {
   font-size: 22px;
   font-weight: 700;
-  color: var(--greenfader);
+  color: var(--accent-green);
   height: auto;
   margin-top: 0;
   line-height: 1;
@@ -252,18 +253,18 @@ h1 {
   text-align: center;
 }
 
-/* MASTER/BUMPS is longer than a 1-2 digit fader number, so it gets a smaller badge font
+/* MASTER/BUMPS is longer than a 1-2 digit intensity number, so it gets a smaller badge font
    that wraps instead of the numeric badges' nowrap+ellipsis truncation. */
-.special-fader .number {
+.special-meter .number {
   font-size: 10px;
   white-space: normal;
 }
 /* The console's own name field is 3 short lines (6/6/5 chars) -- .name is
    just a column of 3 .name-line rows, each rendered exactly as the console lays it out
    rather than word-wrapping one joined string. Always exactly 3 rows (blank ones included),
-   so every fader column's name area is the same height regardless of how many lines that
+   so every meter column's name area is the same height regardless of how many lines that
    particular item's name actually uses. */
-.fader .name {
+.meter .name {
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -273,9 +274,9 @@ h1 {
      same 3-line total (3 * 13px) rather than shrinking to fit their own shorter content. */
   height: 39px;
 }
-/* Every name/label in this row (24-fader names, IND 1/2 names, SOLO/BLACKOUT) shares this
-   font size and weight -- one shared rule instead of repeating the same two values in each
-   context below, which only differ in line-height/height/color/wrapping. */
+/* Every name/label in this row (24-cell intensity names, IND 1/2 names, SOLO/BLACKOUT) shares
+   this font size and weight -- one shared rule instead of repeating the same two values in
+   each context below, which only differ in line-height/height/color/wrapping. */
 .name-line,
 .ind-button.ind-mini .light {
   font-size: 10px;
@@ -295,27 +296,28 @@ h1 {
   display: flex;
   gap: 24px;
 }
-.special-fader + .special-fader { margin-left: -18px; }
-.special-fader {
+.special-meter + .special-meter { margin-left: -18px; }
+.special-meter {
   flex: 0 0 calc((100% - 138px) / 24);
   width: calc((100% - 138px) / 24);
 }
-/* Same breakpoint as .fader-row's 24->12 wrap above: once a fader-row column is one of 12
-   (11 gaps) instead of 24 (23 gaps), Master/Bumps need the matching 12-column width formula
-   to stay the same size as Fader 1/2 -- otherwise they'd still be sized for the 24-wide row. */
+/* Same breakpoint as .intensity-row's 24->12 wrap above: once an intensity-row column is one
+   of 12 (11 gaps) instead of 24 (23 gaps), Master/Bumps need the matching 12-column width
+   formula to stay the same size as Intensity 1/2 -- otherwise they'd still be sized for the
+   24-wide row. */
 @media (max-width: 1600px) {
-  .special-fader {
+  .special-meter {
     flex: 0 0 calc((100% - 66px) / 12);
     width: calc((100% - 66px) / 12);
   }
 }
-.special-fader .fill.master { background: var(--master); }
-.special-fader .fill.bumps { background: var(--bumps); }
-.special-fader .fill.ind { background: var(--greenfader); }
+.special-meter .fill.master { background: var(--master); }
+.special-meter .fill.bumps { background: var(--bumps); }
+.special-meter .fill.ind { background: var(--accent-green); }
 #fader-master .val { color: var(--master); }
-#fader-bumps .val { color: var(--bumps); }
-#fader-ind1 .val,
-#fader-ind2 .val { color: var(--greenfader); }
+#bumps .val { color: var(--bumps); }
+#ind1 .val,
+#ind2 .val { color: var(--accent-green); }
 
 .placeholder .track { display: flex; align-items: center; justify-content: center; }
 .placeholder .track::after {
@@ -379,7 +381,7 @@ h1 {
   border-color: var(--grid);
   color: var(--dim);
 }
-/* Active: same color as the fader each button lives under -- SOLO under Bumps, BLACKOUT
+/* Active: same color as the meter each button lives under -- SOLO under Bumps, BLACKOUT
    under Master. IDs so these beat the generic .ind-button.on / .blackout.on rules. */
 #ind-solo.on .light {
   background: var(--whitebutton);
@@ -409,7 +411,7 @@ h1 {
 }
 #ind-solo.blinking .light { animation: blink-solo var(--blink-duration) steps(1) infinite; }
 #ind-blackout.blinking .light { animation: blink-blackout var(--blink-duration) steps(1) infinite; }
-/* IND 1/2's button shows the Independent's name as 3 lines, same as the fader rows,
+/* IND 1/2's button shows the Independent's name as 3 lines, same as the intensity rows,
    instead of SOLO/BLACKOUT's single static label -- override the centered
    single-line layout inherited from .ind-button .light with a column of small rows. */
 #ind-1 .light,
@@ -426,11 +428,11 @@ h1 {
 }
 #ind-1.on .light,
 #ind-2.on .light {
-  background: var(--greenfader);
-  border-color: var(--greenfader);
+  background: var(--accent-green);
+  border-color: var(--accent-green);
   /* Pale green background, same as SOLO's white -- needs dark text, not BLACKOUT's light. */
   color: var(--darktext);
-  box-shadow: 0 0 10px var(--greenfader);
+  box-shadow: 0 0 10px var(--accent-green);
 }
 .ind-button .lbl {
   font-size: 11px;
