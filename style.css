@@ -8,7 +8,6 @@
   --dim: #9498a6;
   --accent: #4fb0ff;
   --bar: #3d8bd6;
-  --bar-active: #ff9d3d;
   --ok: #5cff8f;
   --bad: #ff5c5c;
 
@@ -411,12 +410,6 @@ h1 {
   font-weight: 700;
   color: var(--dim);
 }
-.ind-button.on .light {
-  background: var(--bar-active);
-  border-color: var(--bar-active);
-  color: #0b0c0e;
-  box-shadow: 0 0 10px var(--bar-active);
-}
 .ind-button.blackout.on .light {
   background: var(--bad);
   border-color: var(--bad);
@@ -526,35 +519,3 @@ h1 {
   animation: blink-fader var(--blink-duration) steps(1) infinite;
 }
 
-.ind-button .lbl {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text);
-  text-align: center;
-  line-height: 1.2;
-  min-height: 2.4em;
-  display: block;
-}
-.ind-button .number,
-.ind-button .name {
-  display: block;
-  width: 100%;
-  text-align: center;
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.ind-button .number {
-  font-size: 11px;
-  color: var(--dim);
-  height: 1.2em;
-}
-.ind-button .name {
-  display: block;
-}
-.note {
-  font-size: 11px;
-  color: var(--dim);
-  margin-top: 10px;
-}
