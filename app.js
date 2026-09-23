@@ -8,7 +8,7 @@ const MODE_PILL_CLASS = {
   "MEMS": "active-M",
 };
 
-// MODES is the source of truth for both the hardcoded HTML sections below (id="section-<mode>"
+// MODES is the source of truth for both the hardcoded HTML sections in index.html (id="section-<mode>"
 // with a nested id="intensities-<mode>" row) and every id built dynamically at runtime
 // ("intensity-<mode>-<i>", "section-<mode>"). A drift between the two -- e.g. renaming a MODES
 // entry without updating the matching HTML -- used to surface as a cryptic null-dereference deep
@@ -20,7 +20,7 @@ MODES.forEach(mode => {
     if (!document.getElementById(prefix + mode)) {
       throw new Error(
         `UI/state mismatch: MODES contains "${mode}" but no element with ` +
-        `id="${prefix}${mode}" exists in the HTML. Check that MODES (index.html) and the ` +
+        `id="${prefix}${mode}" exists in the HTML. Check that MODES (app.js) and the ` +
         `hardcoded <div id="section-....">/<div id="intensities-...."> elements agree.`
       );
     }

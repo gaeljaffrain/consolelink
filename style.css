@@ -178,14 +178,17 @@ h1 {
 }
 /* A caption bar visually tying two or more adjacent indicators together (e.g. "Focus" under
    Pan+Tilt, "INDEPENDENTS" under IND 1/IND 2) -- generic, reusable in any CSS-grid row
-   (.intensity-row's PARAM 1/2 fader labels via computeLabelGroups() in index.html; .special-row's
+   (.intensity-row's PARAM 1/2 fader labels via computeLabelGroups() in app.js; .special-row's
    static IND 1/IND 2 grouping). A .group-bar is just another item in that same grid, given an
-   explicit `grid-column: start / end` (in JS for the dynamic case, inline for the static one)
-   and no grid-row of its own -- since the row's own cells already occupy every column of row 1,
-   it auto-places into row 2, landing exactly below the columns it spans with no row-index
-   bookkeeping needed anywhere. Kept visually light (a thin top rule + small caption) rather
-   than a heavy filled bar, to read as "these belong together" without competing with the
-   meters themselves. */
+   explicit `grid-column: start / end` (in JS for the dynamic case, inline for the static one).
+   The static IND 1/IND 2 caption still relies on plain auto-placement -- no grid-row of its
+   own, so it lands in row 2 since row 1 is already fully occupied. The dynamic PARAM 1/2
+   group-bars no longer do: since the 12-column-wrap fix, renderGroupBars()/
+   projectGroupSegments() in app.js always set an explicit grid-row themselves (see those
+   functions for why plain auto-placement stopped being enough once a row can wrap to two
+   12-column blocks). Kept visually light (a thin top rule + small caption) rather than a
+   heavy filled bar, to read as "these belong together" without competing with the meters
+   themselves. */
 .group-bar {
   grid-column: 1 / -1;
   margin-top: 4px;
@@ -493,7 +496,7 @@ h1 {
 /* The Physical Faders row's light swatch: no text, just a color (solid,
    intensity-proportional once caught; blinking between two brightness levels while the
    physical fader hasn't caught its stored value yet). The wire only sends brightness --
-   green/red hue is picked in JS from the active fader mode (see faderColor() in index.html).
+   green/red hue is picked in JS from the active fader mode (see faderColor() in app.js).
    Sized to sit in a .meter's .name slot, same 24-per-row grid as the intensity rows above. */
 .fader-light {
   width: 100%;
