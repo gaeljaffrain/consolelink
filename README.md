@@ -20,14 +20,29 @@ traces could be matched to a specific action.
 | [`listen.py`](listen.py) | Terminal tool — connects and prints every control change live until Ctrl+C. |
 | [`server.py`](server.py) | Local web app — polls the console in a background thread and serves [`index.html`](index.html) over Server-Sent Events, so a browser tab shows live values. |
 | [`index.html`](index.html) | Static single-page UI for `server.py`: intensity meters (INT A / INT B / DEVICE INT), Master, Bumps, Independents, Solo/BlackOut. |
-| [`requirements.txt`](requirements.txt) | Python package dependencies (`pip3 install -r requirements.txt`). |
+| [`environment.yml`](environment.yml) | Conda-forge environment spec (recommended -- see Requirements below). |
+| [`requirements.txt`](requirements.txt) | Plain pip dependencies, for setups not using conda. |
 
 ## Requirements
 
-- Python 3
-- [`pyusb`](https://pypi.org/project/pyusb/) -- `pip3 install -r requirements.txt`
-- A libusb backend (e.g. `brew install libusb` on macOS)
+- [`pyusb`](https://pypi.org/project/pyusb/), backed by a native `libusb` library
 - The console connected over USB and powered on
+
+**Recommended: conda-forge.** `pyusb` needs a native `libusb` backend, and
+conda-forge packages both together so there's no separate system install step:
+
+```
+conda env create -f environment.yml
+conda activate consolelink
+```
+
+**Alternative: pip.** If you'd rather not use conda, install `pyusb` via pip
+and provide `libusb` yourself:
+
+```
+pip3 install -r requirements.txt
+brew install libusb   # macOS; see pyusb's docs for other platforms
+```
 
 Both tools look for the console at `idVendor=0x14D5, idProduct=0x0201` and
 claim the vendor bulk interface directly — no vendor driver required, but you

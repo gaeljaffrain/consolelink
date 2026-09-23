@@ -1,1 +1,4 @@
+# pip install -r requirements.txt
+# Recommended instead: conda env create -f environment.yml (see README) --
+# pyusb needs a native libusb backend, which conda-forge packages alongside it.
 pyusb
