@@ -274,7 +274,14 @@ window.matchMedia("(max-width: 1600px)").addEventListener("change", relayoutAllR
 // same-key entries, so a lone 2-word entry never gets a group-bar of its own -- keeps showing
 // both words exactly as before, since there's no group-bar standing in for the first one.
 function paramFaderLabel(mode, i, entry) {
-  const inGroup = PARAM_GROUPS[mode].some(g => i >= g.start && i <= g.end);
+  const groups = PARAM_GROUPS[mode];
+  if (!groups) {
+    throw new Error(
+      `paramFaderLabel() called with mode "${mode}", but PARAM_GROUPS only has ` +
+      `entries for "PARAM 1"/"PARAM 2". Check the caller's mode gate.`
+    );
+  }
+  const inGroup = groups.some(g => i >= g.start && i <= g.end);
   if (!inGroup) return pad3(entry);
   return [entry?.[1] || entry?.[0] || "", "", ""];
 }
