@@ -33,7 +33,11 @@ Physical Faders row: 24 bar+light indicators, one per physical fader,
 mode-agnostic (type=0x0e for the live value, type=0x16 for the Bump LED --
 solid/color-proportional once caught, blinking while the physical fader
 hasn't yet caught its stored logical value after a mode switch). And the console's two
-LCDs, mirrored as text (type=0x15).
+LCDs, mirrored as text (type=0x15), and the Crossfader Live/Next levels (type=0x11).
+
+The fader and intensity values are output levels, level x Crossfader Live x Master (both
+type=0x0e and the stored type=0x0f bank): a fader at full with Live and Master at 60% reads
+36%, not 100%.
 """
 import argparse
 import json
@@ -72,13 +76,15 @@ state = {
     # level deeper: {page (1-indexed): {slot (1-indexed): [lines]}}, from type=0x00
     # (decode_0x00_memory_name in protocol.py) -- one entry per recorded memory.
     "independent_labels": {},
-    "physical_faders": [0] * 24,  # live combined value per fader, mode-agnostic (type=0x0e)
+    "physical_faders": [0] * 24,  # live output level per fader (x Crossfader Live x Master), mode-agnostic (type=0x0e)
     "physical_fader_lights": [None] * 24,  # None until the first type=0x16 seen for that
     # fader; then {"blinking": True, "color_a": [r, g, b], "color_b": [r, g, b]} or
     # {"blinking": False, "color": [r, g, b]} -- the console's own LED color, see
     # decode_0x16_bump_catch in protocol.py
     "bumps": 0,
     "master": 0,
+    "crossfader_live": 0,  # Crossfader Live/Next scene levels, raw 0-255 (type=0x11)
+    "crossfader_next": 0,
     "independent1": None,  # None until the first type=0x0c message; then a raw 0-255 value
     "independent2": None,
     "independent1_clicked": None,  # None until the first type=0x0c message; then True/False -- a
@@ -234,6 +240,15 @@ def handle_payload(obj_type, data):
                     state["intensities"][mode_name] = intensities
                 state["last_update"] = time.time()
                 state_condition.notify_all()
+    # Crossfader Live/Next -- their own message, never part of type=0x0e
+    elif obj_type == 0x11:
+        full = sfl.decode_0x11_full(data)
+        if full is not None:
+            live, next_ = full
+            if DEBUG and (live, next_) != (state["crossfader_live"], state["crossfader_next"]):
+                print(f"[crossfader] t={time.time() - _t_start:7.3f}  live={live} next={next_}",
+                      file=sys.stderr)
+            update_state(crossfader_live=live, crossfader_next=next_)
     # The console's two LCDs, 2 x 20 chars each, resent whenever either display changes
     elif obj_type == 0x15:
         lines = sfl.decode_0x15(data)
@@ -324,8 +339,8 @@ def poll_forever(stop_event):
         elif DEBUG:
             print("[webapp] proactive 0x0f request got no reply", file=sys.stderr)
 
-        # Independents, Solo/BlackOut and the LCD text are fetched directly.
-        for type_byte, label in ((0x0c, "0x0c"), (0x16, "0x16"), (0x15, "0x15")):
+        # Independents, Solo/BlackOut, the LCD text and the crossfaders are fetched directly.
+        for type_byte, label in ((0x0c, "0x0c"), (0x16, "0x16"), (0x15, "0x15"), (0x11, "0x11")):
             obj_type, data = link.request_type(type_byte)
             if obj_type is not None:
                 log_capture("requested", obj_type, data)

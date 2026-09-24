@@ -387,10 +387,11 @@ h1 {
   text-overflow: clip;
 }
 
-/* CSS grid, not flex: lets MASTER/BUMPS/IND 1/IND 2 share the exact same "append a .group-bar
-   with an explicit grid-column, no grid-row" mechanism as .intensity-row (see .group-bar
-   above) for the IND 1/IND 2 "INDEPENDENTS" caption -- a plain sibling .group-bar auto-places
-   into row 2 since row 1 is already fully occupied by the 4 items, no wrapper element needed.
+/* CSS grid, not flex: lets MASTER/BUMPS/IND 1/IND 2/LIVE/NEXT share the exact same "append a
+   .group-bar with an explicit grid-column, no grid-row" mechanism as .intensity-row (see
+   .group-bar above) for the "INDEPENDENTS" and "CROSSFADER" captions -- a plain sibling
+   .group-bar auto-places into row 2 since row 1 is already fully occupied by the 6 meters, no
+   wrapper element needed.
    (An earlier version wrapped IND 1/IND 2 in an extra flex container and passed their shared
    width down via a CSS custom property -- broken, because a custom property's "%" is NOT
    resolved at the element that declares it; it stays live text substituted at the point of
@@ -402,9 +403,9 @@ h1 {
      breakpoint). Only used right here, in .special-row's own grid-template-columns, so its "%"
      resolves against .special-row. */
   --col: calc((100% - (var(--cols) - 1) * var(--gap)) / var(--cols));
-  /* 4 meter tracks, a spacer taking the rest of the row, then 6 more tracks for the two LCDs
+  /* 6 meter tracks, a spacer taking the rest of the row, then 6 more tracks for the two LCDs
      (3 each -- half of a phone's 6 columns, where they sit side by side below the meters). */
-  grid-template-columns: repeat(4, var(--col)) minmax(0, 1fr) repeat(6, var(--col));
+  grid-template-columns: repeat(6, var(--col)) minmax(0, 1fr) repeat(6, var(--col));
   gap: var(--gap);
 }
 /* No width rule on .special-meter itself: the grid track above already sizes each column
@@ -417,10 +418,11 @@ h1 {
    rendered grid-template-columns (63.3px per track, correct) vs. the item boxes (10px, wrong)
    with Playwright before removing this. */
 /* The console's two 2x20 LCDs, at the right like on the console's top right, each spanning
-   three meter columns and both grid rows (meters + INDEPENDENTS caption). On a phone in
+   three meter columns and both grid rows (meters + INDEPENDENTS/CROSSFADER captions). Counted
+   from the right edge, so they stay put with or without the spacer track. On a phone in
    portrait they move below the meters instead (see the end of this file). */
-#lcd-1 { grid-column: 6 / 9; }
-#lcd-2 { grid-column: 9 / 12; }
+#lcd-1 { grid-column: -7 / -4; }
+#lcd-2 { grid-column: -4 / -1; }
 .lcd {
   grid-row: 1 / 3;
   align-self: start;
@@ -461,7 +463,8 @@ h1 {
 .lcd.placeholder .lcd-line { opacity: 0.5; }
 .special-meter .fill.master { background: var(--master); }
 .special-meter .fill.bumps { background: var(--bumps); }
-.special-meter .fill.ind { background: var(--accent-green); }
+.special-meter .fill.ind,
+.special-meter .fill.xfade { background: var(--accent-green); }
 #fader-master .val { color: var(--master); }
 #bumps .val { color: var(--bumps); }
 #ind1 .val,
@@ -596,6 +599,12 @@ h1 {
   animation: blink-fader var(--blink-duration) steps(1) infinite;
 }
 
+
+/* 12 columns: the 6 meters and 6 LCD columns fill the row exactly, so the spacer track would
+   only add one extra gap and push the row a gap's width past its edge. */
+@media (max-width: 1600px) {
+  .special-row { grid-template-columns: repeat(var(--cols), var(--col)); }
+}
 
 /* Narrow windows and phones. Kept at the end of the file so these win the cascade over the
    same-specificity rules above.

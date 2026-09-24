@@ -30,12 +30,17 @@ Decodes:
     hardware across three separate captures). Mode-agnostic -- reports
     whatever's on a fader regardless of which fader mode is active: a
     fader's raw value means different things (an INT A level, an INT B
-    level, a device intensity, ...) depending on type=0x17 below.
+    level, a device intensity, ...) depending on type=0x17 below. The
+    fader values are output levels, not lever positions: level x Crossfader
+    Live (type=0x11) x Master, e.g. faders at full with Live and Master
+    both at 60% read 36% (92) -- matching the devices' actual output.
   - type=0x0f (75 bytes): the stored intensity table -- unlike 0x0e (which
     only ever reports whichever fader mode is physically active), this holds
     all three intensity sub-mode banks (INT A/INT B/INT DEV) at once --
     `[header:1][INT A: 24][INT B: 24][INT DEV: 24]`.
-  - type=0x11 (209 bytes): Crossfader Live, Crossfader Next.
+  - type=0x11 (209 bytes): Crossfader Live, Crossfader Next -- the two scene
+    levels, not lever positions: once a crossfade completes the console
+    resets them to Live=255, Next=0 wherever the levers physically are.
   - type=0x15 (81 bytes): the console's two physical LCDs, verbatim ASCII (plus
     8 bar-graph glyphs, see decode_0x15) -- 1 marker byte + 80 characters
     (2 displays x 2 lines x 20 chars). This is
@@ -174,6 +179,14 @@ def decode_0x11(data):
     if data[196]:
         values["CrossfaderNext"] = data[196]
     return values
+
+def decode_0x11_full(data):
+    """Full snapshot decode of type=0x11: (live, next), zero included -- same reason as
+    decode_0x0e_full: every message carries both levels, so a stateful client replaces both.
+    """
+    if len(data) < 197:
+        return None
+    return data[195], data[196]
 
 
 # The console's LCDs have 8 custom glyphs, sent as bytes 0x80-0x87. The only screen seen using

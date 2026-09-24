@@ -420,6 +420,8 @@ function render(state) {
 
   setBar(document.getElementById("fader-master"), state.master);
   setBar(document.getElementById("bumps"), state.bumps);
+  setBar(document.getElementById("xfade-live"), state.crossfader_live);
+  setBar(document.getElementById("xfade-next"), state.crossfader_next);
 
   document.getElementById("section-physical").classList.toggle("mems", state.fader_mode === "MEMS");
   for (let i = 1; i <= 24; i++) {
