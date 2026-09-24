@@ -1,4 +1,4 @@
-# consolelink
+# ConsoleLink
 
 Talk to an ETC SmartFade ML lighting console over USB and see its live state
 (faders, master, bumps, independents, solo/blackout, both LCDs) without SmartSoft.
