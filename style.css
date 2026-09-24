@@ -398,12 +398,13 @@ h1 {
    .special-row's, collapsing both to a sliver. Direct grid items sidestep that entirely.) */
 .special-row {
   display: grid;
-  /* 4 meter tracks, each exactly as wide as one .intensity-row column (same --cols/--gap, so
-     same width at every breakpoint), then one taking the rest of the row for the LCDs
-     (.lcd-pair). */
-  grid-template-columns:
-    repeat(4, calc((100% - (var(--cols) - 1) * var(--gap)) / var(--cols)))
-    minmax(0, 1fr);
+  /* One .intensity-row column's width (same --cols/--gap, so the same width at every
+     breakpoint). Only used right here, in .special-row's own grid-template-columns, so its "%"
+     resolves against .special-row. */
+  --col: calc((100% - (var(--cols) - 1) * var(--gap)) / var(--cols));
+  /* 4 meter tracks, a spacer taking the rest of the row, then 6 more tracks for the two LCDs
+     (3 each -- half of a phone's 6 columns, where they sit side by side below the meters). */
+  grid-template-columns: repeat(4, var(--col)) minmax(0, 1fr) repeat(6, var(--col));
   gap: var(--gap);
 }
 /* No width rule on .special-meter itself: the grid track above already sizes each column
@@ -415,35 +416,49 @@ h1 {
    fixing the .special-row circular-sizing issue below -- confirmed by measuring the actual
    rendered grid-template-columns (63.3px per track, correct) vs. the item boxes (10px, wrong)
    with Playwright before removing this. */
-/* The console's two 2x20 LCDs, right-aligned like on the console's top right. Spans both grid
-   rows (meters + INDEPENDENTS caption) of its own track. On a phone in portrait it moves to its
-   own row below instead (see the end of this file). */
-.lcd-pair {
-  grid-column: 5;
-  grid-row: 1 / 3;
-  justify-self: end;
-  align-self: start;
-  display: flex;
-  gap: 10px;
-}
+/* The console's two 2x20 LCDs, at the right like on the console's top right, each spanning
+   three meter columns and both grid rows (meters + INDEPENDENTS caption). On a phone in
+   portrait they move below the meters instead (see the end of this file). */
+#lcd-1 { grid-column: 6 / 9; }
+#lcd-2 { grid-column: 9 / 12; }
 .lcd {
+  grid-row: 1 / 3;
+  align-self: start;
+  min-width: 0;
+  /* Lets .lcd-line size its font from this panel's width (cqi units). */
+  container-type: inline-size;
   background: var(--bg);
   border: 1px solid var(--grid);
   border-radius: 6px;
-  padding: 6px 10px;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 13px;
+  padding: 4px 4px 6px;
+}
+/* Header badge, same look as MASTER/BUMPS's .number above their meters. */
+.lcd-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--grid);
+  border-radius: 4px 4px 0 0;
+  line-height: 1.5;
+  text-align: center;
+  margin-bottom: 4px;
 }
 /* white-space: pre keeps the console's own column alignment (runs of spaces); the fixed 20ch
-   width keeps an empty or placeholder panel the same size as a filled one. */
+   width keeps an empty or placeholder panel the same size as a filled one. The panel's width
+   is set by the grid, not the text, so the font scales to fit 20 characters in it (a
+   monospace character is ~0.6em wide, so 20ch ~ 12em; 12px kept free for the side margins),
+   up to 13px. */
 .lcd-line {
   width: 20ch;
+  margin: 0 auto;
+  font-size: min(13px, (100cqi - 12px) / 12.1);
   height: 1.4em;
   line-height: 1.4em;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
   white-space: pre;
   overflow: hidden;
 }
-.lcd.placeholder { opacity: 0.5; }
+.lcd.placeholder .lcd-line { opacity: 0.5; }
 .special-meter .fill.master { background: var(--master); }
 .special-meter .fill.bumps { background: var(--bumps); }
 .special-meter .fill.ind { background: var(--accent-green); }
@@ -600,8 +615,7 @@ h1 {
   .meter { padding: 2px; }
   .intensity-row .meter .number { font-size: 13px; }
   /* "MASTER" is the one badge word that can't wrap, and at 10px it's ~3px too wide for a ~44px
-     column. */
-  .special-meter .number { font-size: 9px; }
+     column. The LCD labels (below) follow, to keep the badges matching. */
   /* IND 1/2's name sits inside the button's own border and padding, so it has ~6px less than
      an intensity name -- a full 6-character line needs the smaller font at ~44px columns. */
   #ind-1 .light .name-line,
@@ -612,8 +626,9 @@ h1 {
   .special-meter .track { width: 10px; flex: 0 0 10px; }
   .intensity-row .meter .val,
   .special-meter .val { font-size: 18px; }
-  .lcd-pair { gap: 6px; }
-  .lcd { font-size: 11px; padding: 4px 6px; }
+  .lcd { padding: 2px 2px 4px; }
+  .special-meter .number,
+  .lcd-label { font-size: 9px; }
 }
 
 /* Phone portrait (the --cols: 6 breakpoint at the top of this file). */
@@ -638,13 +653,10 @@ h1 {
   .section.section-row .special-row {
     flex: none;
   }
-  /* The meters keep one column each; the LCDs move to their own row below the INDEPENDENTS
-     caption and stack when both don't fit side by side. */
-  .lcd-pair {
-    grid-column: 1 / -1;
-    grid-row: 3;
-    justify-self: start;
-    flex-wrap: wrap;
-    margin-top: 4px;
-  }
+  /* Just the --cols columns, like .intensity-row: the LCDs sit side by side below the
+     INDEPENDENTS caption, 3 columns each, filling the row. */
+  .special-row { grid-template-columns: repeat(var(--cols), var(--col)); }
+  #lcd-1, #lcd-2 { grid-row: 3; margin-top: 4px; }
+  #lcd-1 { grid-column: 1 / 4; }
+  #lcd-2 { grid-column: 4 / 7; }
 }
