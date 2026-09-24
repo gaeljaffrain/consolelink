@@ -84,6 +84,8 @@ state = {
     "independent2_clicked": None,  # separate bit from the value above
     "solo": None,  # None until the first type=0x16 message; then "on"/"off"/"blinking"
     "blackout": None,
+    "indicator_lights": {"solo": None, "blackout": None},  # the console's own Solo/BlackOut
+    # LED colors, same shape as physical_fader_lights -- see decode_0x16_indicator_lights
     "last_update": 0.0,
 }
 state_lock = threading.Lock()
@@ -198,7 +200,7 @@ def handle_payload(obj_type, data):
                     state["independent_labels"].update(update["independent_labels"])
                     state["last_update"] = time.time()
                     state_condition.notify_all()
-    # Solo/Blackout indicators, plus the 24 per-fader Bump-LED blocks in the same payload
+    # Solo/Blackout indicators and LED colors, plus the 24 per-fader Bump-LED blocks in the same payload
     elif obj_type == 0x16:
         flags = sfl.decode_0x16_indicators(data)
         update = {k: v for k, v in (("solo", flags["solo"]), ("blackout", flags["blackout"]))
@@ -211,8 +213,10 @@ def handle_payload(obj_type, data):
         # applied when solo/blackout actually changed, and coupling the fader-lights list to
         # that truthiness would be incidental, not a designed guarantee.
         lights = [sfl.decode_0x16_bump_catch(data, n) for n in range(1, 25)]
+        indicator_lights = sfl.decode_0x16_indicator_lights(data)
         with state_condition:
             state["physical_fader_lights"] = lights
+            state["indicator_lights"] = indicator_lights
             state["last_update"] = time.time()
             state_condition.notify_all()
 

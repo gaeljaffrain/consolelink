@@ -56,7 +56,7 @@ function buildPhysicalFaderMeters() {
         <div class="track"><div class="fill" style="height:0%"></div></div>
         <div class="val">0</div>
       </div>
-      <div class="fader-light placeholder" id="physfader-${i}-light"></div>
+      <div class="fader-light" id="physfader-${i}-light"></div>
       <div class="name">
         <div class="name-line"></div>
         <div class="name-line"></div>
@@ -250,12 +250,15 @@ function physicalFaderLabelLines(mode, i, labels, memsPage) {
 }
 
 // state is null until the first type=0x16 update (still "placeholder"), then "on"/"off"/"blinking".
+// light is the console's own LED colors for it (decode_0x16_indicator_lights), used while on or
+// blinking; off keeps the page's own inactive style.
 // keepLabel: SOLO/BLACKOUT already carry a permanent label in the HTML -- don't overwrite it.
-function setIndicator(el, state, keepLabel) {
+function setIndicator(el, state, light, keepLabel) {
   if (!el) return;
   el.classList.toggle("placeholder", state === null);
   el.classList.toggle("on", state === "on");
   el.classList.toggle("blinking", state === "blinking");
+  setLightColors(el.querySelector(".light"), state === "off" ? null : light);
   if (!keepLabel) {
     el.querySelector(".light").textContent = state === null ? "?" : "";
   }
@@ -275,29 +278,79 @@ function rgbCss(color) {
   return color ? `rgb(${color[0]}, ${color[1]}, ${color[2]})` : "";
 }
 
+// Colors the console itself sends (bump LEDs, FADERS bars, Solo/BlackOut) all go through
+// consoleColor(); the page's own handpicked palette in style.css doesn't. saturation: 0 = grey,
+// 1 = the console's own color, tuned by the header slider and remembered per browser.
+const SATURATION_KEY = "consolelink.saturation";
+let saturation = 0.6;
+try {
+  //const stored = parseFloat(localStorage.getItem(SATURATION_KEY));
+  if (stored >= 0 && stored <= 1) saturation = stored;
+} catch (e) { /* storage unavailable -- keep the default */ }
+
+// Scales the color's chroma in OKLab, leaving its perceived lightness alone: a dim 0x46 MEMS LED
+// stays dim at any saturation, and white/grey are unaffected. (Plain sRGB luma would instead
+// darken red and blue as they desaturate -- pure blue's luma is only 18/255.)
+const srgbToLinear = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+const linearToSrgb = c => {
+  c = c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055;
+  return Math.round(Math.min(1, Math.max(0, c)) * 255);
+};
+function consoleColor(rgb) {
+  const [r, g, b] = rgb.map(srgbToLinear);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  const L = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s;
+  const A = (1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s) * saturation;
+  const B = (0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s) * saturation;
+  const l2 = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3;
+  const m2 = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3;
+  const s2 = (L - 0.0894841775 * A - 1.2914855480 * B) ** 3;
+  return rgbCss([
+    4.0767416621 * l2 - 3.3077115913 * m2 + 0.2309699292 * s2,
+    -1.2684380046 * l2 + 2.6097574011 * m2 - 0.3413193965 * s2,
+    -0.0041960863 * l2 - 0.7034186147 * m2 + 1.7076147010 * s2,
+  ].map(linearToSrgb));
+}
+
+// Sets --color-a/--color-b (the LED's two blink phases, equal when solid) from a type=0x16 light
+// ({blinking, color} / {blinking, color_a, color_b}), or clears them when light is null so the
+// CSS fallbacks apply.
+function setLightColors(el, light) {
+  const a = light && (light.blinking ? light.color_a : light.color);
+  const b = light && (light.blinking ? light.color_b : light.color);
+  el.style.setProperty("--color-a", a ? consoleColor(a) : "");
+  el.style.setProperty("--color-b", b ? consoleColor(b) : "");
+}
+
+// The FADERS bar takes only the hue of its bump LED, at full brightness: in INT modes the LED
+// dims with the fader, which would otherwise make a low fader's bar near-black. "" (CSS
+// fallback) while the LED is unknown or dark.
+function barColor(light) {
+  const c = light && (light.blinking ? light.color_a : light.color);
+  const max = c ? Math.max(...c) : 0;
+  return max ? consoleColor(c.map(v => Math.round(v * 255 / max))) : "";
+}
+
 // light is null until the fader's first type=0x16 update, then either
 // {blinking:true, color_a, color_b} (flashing toward its stored value) or {blinking:false, color}
-// -- [r, g, b] straight from the console (green, or red in MEMS).
+// -- [r, g, b] straight from the console (green, or red in MEMS), through consoleColor().
 function setPhysicalFader(i, value, light, mode, labels, memsPage) {
   const meterEl = document.getElementById("physfader-" + i);
   setBar(meterEl, value, true);
   setName(meterEl, physicalFaderLabelLines(mode, i, labels, memsPage));
   const lightEl = document.getElementById("physfader-" + i + "-light");
-  lightEl.classList.toggle("placeholder", light == null);
-  if (light && light.blinking) {
-    lightEl.style.setProperty("--color-a", rgbCss(light.color_a));
-    lightEl.style.setProperty("--color-b", rgbCss(light.color_b));
-    lightEl.style.background = "";
-    lightEl.classList.add("blinking");
-  } else {
-    lightEl.classList.remove("blinking");
-    lightEl.style.background = light ? rgbCss(light.color) : "";
-  }
+  lightEl.classList.toggle("blinking", !!light?.blinking);
+  setLightColors(lightEl, light);
+  meterEl.style.setProperty("--bar-color", barColor(light));
 }
 
 let lastUpdate = 0;
+let lastState = null;  // re-rendered as-is when the saturation slider moves
 
 function render(state) {
+  lastState = state;
   const dot = document.getElementById("dot");
   const connText = document.getElementById("conn-text");
   dot.classList.toggle("ok", state.connected);
@@ -343,11 +396,20 @@ function render(state) {
     state.independent1, state.independent1_clicked, state.independent_labels?.[1]);
   setIndependent(document.getElementById("ind2"), document.getElementById("ind-2"),
     state.independent2, state.independent2_clicked, state.independent_labels?.[2]);
-  setIndicator(document.getElementById("ind-solo"), state.solo, true);
-  setIndicator(document.getElementById("ind-blackout"), state.blackout, true);
+  setIndicator(document.getElementById("ind-solo"), state.solo, state.indicator_lights?.solo, true);
+  setIndicator(document.getElementById("ind-blackout"), state.blackout,
+    state.indicator_lights?.blackout, true);
 
   lastUpdate = state.last_update;
 }
+
+const saturationInput = document.getElementById("saturation");
+saturationInput.value = saturation;
+saturationInput.addEventListener("input", () => {
+  saturation = parseFloat(saturationInput.value);
+  try { localStorage.setItem(SATURATION_KEY, String(saturation)); } catch (e) { /* not persisted */ }
+  if (lastState) render(lastState);
+});
 
 // Pushed via Server-Sent Events rather than polled: every state change the server
 // decodes is sent immediately, so no update is silently skipped between polls.

@@ -434,7 +434,26 @@ def decode_0x16_bump_catch(data, fader):
     Returns None if data is too short, else {"blinking": True, "color_a": [r, g, b],
     "color_b": [r, g, b]} or {"blinking": False, "color": [r, g, b]}.
     """
-    off = 1 + 6 * (fader - 1)
+    return _rgb_pair(data, 1 + 6 * (fader - 1))
+
+
+def decode_0x16_indicator_lights(data):
+    """type=0x16: Solo/BlackOut's LED colors, the same 6-byte two-RGB-triple blocks that
+    decode_0x16_indicators reads as on/off/blinking (offsets 517 / 523). Solo on is white
+    `ff ff ff`, BlackOut on is blue `00 00 ff`, BlackOut's blink is `37 37 ff` / `0a 0a 0a`,
+    idle is `0a 0a 0a` for both.
+
+    Returns {"solo": ..., "blackout": ...}, each in decode_0x16_bump_catch's shape (None if
+    data is too short).
+    """
+    return {"solo": _rgb_pair(data, 517), "blackout": _rgb_pair(data, 523)}
+
+
+def _rgb_pair(data, off):
+    """A type=0x16 6-byte LED block at `off`: two RGB triples, the LED's two blink phases.
+    Returns None if data is too short, else {"blinking": True, "color_a": [r, g, b],
+    "color_b": [r, g, b]} if the halves differ, or {"blinking": False, "color": [r, g, b]}.
+    """
     if len(data) < off + 6:
         return None
     a, b = list(data[off:off + 3]), list(data[off + 3:off + 6])

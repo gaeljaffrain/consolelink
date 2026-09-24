@@ -13,6 +13,11 @@
   <div class="status-row">
     <div class="status"><span class="dot" id="dot"></span><span id="conn-text">connecting…</span></div>
     <div id="stale-text" style="color: var(--dim);"></div>
+    <label class="sat-control">Colors:
+      <div>Soft</div>
+      <input type="range" id="saturation" min="0.5" max="1" step="0.05">
+      <div>Native</div>
+    </label>
   </div>
 
   <div class="section section-row" id="section-master-bumps">
@@ -25,7 +30,7 @@
           <div class="val">0</div>
         </div>
         <div class="name">
-          <div class="ind-button ind-mini placeholder blackout" id="ind-blackout">
+          <div class="ind-button ind-mini placeholder" id="ind-blackout">
             <div class="light">BLACK OUT</div>
           </div>
         </div>
