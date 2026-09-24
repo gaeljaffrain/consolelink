@@ -7,7 +7,6 @@
   --darktext: #0b0c0e;
   --dim: #9498a6;
   --accent: #4fb0ff;
-  --bar: #3d8bd6;
   --ok: #5cff8f;
   --bad: #ff5c5c;
 
@@ -234,7 +233,7 @@ h1 {
 }
 .meter .fill {
   width: 100%;
-  background: linear-gradient(180deg, var(--bar), #1f5c96);
+  background: transparent;
   height: 0%;
   transition: height 80ms linear;
 }
