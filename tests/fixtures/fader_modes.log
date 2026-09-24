@@ -1,0 +1,23 @@
+# Byte-exact excerpt of real console traffic -- regenerated, don't hand-edit.
+# Fader-mode selector (type=0x17): each of the six mode buttons pressed in order,
+# then back to INT A. MEMS page changes pressed separately (pages 1-4).
+# @int_b: INT B.
+t=   3.419 acked    type=0x17 len=7 raw=00010000010100
+# @int_dev: INT DEV.
+t=   6.327 acked    type=0x17 len=7 raw=00010000020100
+# @param1: PARAM 1.
+t=   9.230 acked    type=0x17 len=7 raw=02010000020100
+# @param2: PARAM 2.
+t=  11.898 acked    type=0x17 len=7 raw=02010001020100
+# @mems: MEMS.
+t=  14.448 acked    type=0x17 len=7 raw=01010001020100
+# @int_a: Back to INT A.
+t=  17.128 acked    type=0x17 len=7 raw=00010001000100
+# @mems_page1: MEMS, page 1.
+t=  20.637 acked    type=0x17 len=7 raw=01010001000100
+# @mems_page2: MEMS, page 2.
+t=  21.345 acked    type=0x17 len=7 raw=01010101000100
+# @mems_page3: MEMS, page 3.
+t=  25.602 acked    type=0x17 len=7 raw=01010201000100
+# @mems_page4: MEMS, page 4.
+t=  29.864 acked    type=0x17 len=7 raw=01010301000100

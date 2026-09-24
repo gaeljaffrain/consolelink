@@ -1,0 +1,3 @@
+# pip install -r requirements-dev.txt -- runtime deps plus what the tests (tests/) need.
+-r requirements.txt
+pytest

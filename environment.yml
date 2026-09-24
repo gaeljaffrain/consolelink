@@ -5,3 +5,4 @@ dependencies:
   - python=3.11
   - pyusb
   - libusb
+  - pytest  # tests only (tests/), not needed to run the app

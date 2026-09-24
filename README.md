@@ -23,6 +23,8 @@ traces could be matched to a specific action.
 | [`app.js`](app.js) | Front-end logic for `index.html`: builds the meter grid, connects to the SSE stream, and renders each incoming state update. |
 | [`environment.yml`](environment.yml) | Conda-forge environment spec (recommended -- see Requirements below). |
 | [`requirements.txt`](requirements.txt) | Plain pip dependencies, for setups not using conda. |
+| [`requirements-dev.txt`](requirements-dev.txt) | pip dependencies plus `pytest`, for running the tests. |
+| [`tests/`](tests/) | Decoder and server tests, replaying recorded console traffic from [`tests/fixtures/`](tests/fixtures/) -- no console needed. |
 
 ## Requirements
 
@@ -93,6 +95,25 @@ probing on connect.
 
 See `protocol.py`'s module docstring for the full message-type breakdown
 (which types are decoded, which are known-but-not-yet decoded, and why).
+
+## Tests
+
+The tests replay real console traffic recorded from a SmartFade ML, so they
+run without a console attached:
+
+```
+python -m pytest
+```
+
+(`pytest` is included in `environment.yml`; with pip, use
+`pip install -r requirements-dev.txt`.)
+
+Each file in `tests/fixtures/` is a few messages in the same line format
+`--capture` writes, with comments saying what the console was doing, and
+`# @tag:` lines naming the messages the tests look up. The expected values in
+the tests are what the console itself showed at the time -- not just whatever
+the decoder currently returns -- so a decoder change that breaks one is a real
+regression.
 
 ## License
 

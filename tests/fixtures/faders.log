@@ -1,0 +1,7 @@
+# Byte-exact excerpt of real console traffic -- regenerated, don't hand-edit.
+# Live fader table (type=0x0e) and the stored intensity banks (type=0x0f).
+# INT A: fader 1 at 187, fader 2 at 94; Bumps and Master at full.
+# @int_a_faders: INT A just selected: fader 1 = 187, fader 2 = 94, Bumps/Master full.
+t=  31.904 acked    type=0x0e len=99 raw=18bb0000005e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffff
+# @banks_at_connect: Stored banks at connect: INT A fader 1 = 187, fader 2 = 94, INT B/INT DEV all 0.
+t=   0.162 requested type=0x0f len=75 raw=4abb5e000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
