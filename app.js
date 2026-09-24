@@ -239,8 +239,7 @@ function paramFaderLabel(mode, i, entry) {
 
 // INT A/B/DEV show the real patched channel name (state.labels[mode][i]) instead of a generic
 // label -- blank, not "?", when the console hasn't sent one for that slot yet. MEMS names come
-// from the console's per-page memory names, state.labels["MEMS"][memsPage][i] (see RE notes for
-// how the page/slot indexing was confirmed).
+// from the console's per-page memory names, state.labels["MEMS"][memsPage][i].
 function physicalFaderLabelLines(mode, i, labels, memsPage) {
   if (MODES.includes(mode)) return labels?.[mode]?.[i] || ["", "", ""];
   if (mode === "PARAM 1") return paramFaderLabel(mode, i, PARAM_1_LABELS[i - 1]);

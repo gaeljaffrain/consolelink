@@ -120,8 +120,8 @@ def decode_announce(data):
     The two fields have DIFFERENT byte orders on the wire: the first is big-endian, the
     second little-endian. Confirmed for the second field by 0x00's page-3/slot-5 memory,
     announced as `02 04 00` after the page's high byte, and acked by real SmartSoft as
-    state[2]=4 (trace_fresh_start.pcapng acks slots 1-23 the same way) -- reading it
-    big-endian gave 1024, so the console answered every slot with slot 0's record.
+    state[2]=4 (slots 1-23 acked the same way) -- reading it big-endian gave 1024, so the
+    console answered every slot with slot 0's record.
     """
     if len(data) < 2:
         return []
