@@ -147,12 +147,10 @@ def main():
         log_capture("requested", mode_type, mode_data)
         handle_payload(mode_type, mode_data)
 
-    # Proactively ask for current fader/master/bumps state instead of relying on the
-    # console's own unprompted announce, which on macOS loses a race against the OS's own
-    # automatic USB HID driver probing almost every time -- confirmed live that the console
-    # replies with current data even without ever having announced it first. Sent after the
-    # mode request above, so it gets bucketed correctly instead of being mislabeled under the
-    # assumed default.
+    # Ask for current fader/master/bumps state directly rather than relying on the console's
+    # own unprompted announce, which loses a race against macOS's automatic USB HID driver
+    # probing almost every time. Sent after the mode request above, so it gets bucketed
+    # correctly instead of being mislabeled under the assumed default.
     req_type, req_data = link.request_type(0x0e)
     if req_type is not None:
         log_capture("requested", req_type, req_data)
@@ -166,12 +164,9 @@ def main():
         log_capture("requested", all_type, all_data)
         handle_payload(all_type, all_data)
 
-    # Independents and Solo/BlackOut, on demand -- same trick as above. Supersedes the earlier
-    # approach entirely: that sent SmartSoft's full 191-entry show catalog request and waited
-    # ~10-15s for it to crawl through, because at the time it seemed to be the only way to get
-    # these two. request_type() -- proven generic by this point -- just works for these too
-    # (confirmed live), and this tool doesn't need anything else out of that catalog
-    # (names/groups/cues/curves -- all real, just not printed by this terminal tool).
+    # Independents and Solo/BlackOut, on demand -- same trick as above. This tool doesn't need
+    # anything else out of the full show catalog (names/groups/cues/curves -- all real, just
+    # not printed here).
     for type_byte in (0x0c, 0x16):
         req_type, req_data = link.request_type(type_byte)
         if req_type is not None:

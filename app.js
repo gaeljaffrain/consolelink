@@ -8,13 +8,8 @@ const MODE_PILL_CLASS = {
   "MEMS": "active-M",
 };
 
-// MODES is the source of truth for both the hardcoded HTML sections in index.html (id="section-<mode>"
-// with a nested id="intensities-<mode>" row) and every id built dynamically at runtime
-// ("intensity-<mode>-<i>", "section-<mode>"). A drift between the two -- e.g. renaming a MODES
-// entry without updating the matching HTML -- used to surface as a cryptic null-dereference deep
-// inside buildIntensityMeters() or render(), aborting silently partway through. Check it here,
-// before anything else runs, so a mismatch fails immediately with a message that names exactly
-// which mode and which expected id is missing.
+// MODES must exactly match the hardcoded ids in index.html (section-<mode>, intensities-<mode>).
+// Checked eagerly so a mismatch fails clearly here, not as a null-dereference inside render().
 MODES.forEach(mode => {
   for (const prefix of ["section-", "intensities-"]) {
     if (!document.getElementById(prefix + mode)) {
@@ -72,22 +67,17 @@ function buildPhysicalFaderMeters() {
 }
 buildPhysicalFaderMeters();
 
-// .intensity-row wraps from 24 columns to two 12-column rows below 1600px (see style.css) --
-// matches that breakpoint exactly, so layout/group-bar placement always agrees with whichever
-// one actually applied.
+// Must match the 1600px breakpoint in style.css exactly, so meter/group-bar placement always
+// agrees with whichever layout the CSS actually applied.
 function currentColumnsPerRow() {
   return window.matchMedia("(max-width: 1600px)").matches ? 12 : 24;
 }
 
-// Explicitly places a 24-cell row's .meter children at (row, column) for the given
-// columns-per-row, instead of leaving them to plain CSS Grid auto-placement. Needed once a
-// row can have group-bar captions AND wrap to two 12-column rows at once: auto-placement packs
-// wrapped items straight into consecutive rows with no gap, so there's no row left free
-// between them for the first wrapped block's own captions -- confirmed live (meters 13+
-// visibly collided with the first block's caption bars) before this existed. Odd rows (1, 3,
-// 5, ...) hold each wrapped block's meters; the even row right after each is reserved for that
-// block's captions (see projectGroupSegments below) and simply stays empty -- 0 height -- for
-// any row with nothing grouped, e.g. every INT A/B/DEV row today.
+// Explicit grid placement, not CSS auto-placement: once a row wraps to two 12-column blocks
+// AND has group-bar captions, auto-placement packs wrapped items with no gap between them,
+// leaving no row free for the first block's captions. Odd rows (1, 3, ...) hold each wrapped
+// block's meters; the even row right after holds that block's captions (see
+// projectGroupSegments) and stays empty when nothing is grouped.
 function layoutMeterGrid(containerEl, columnsPerRow) {
   containerEl.querySelectorAll(".meter").forEach((el, idx) => {
     el.style.gridColumn = String((idx % columnsPerRow) + 1);
@@ -103,12 +93,8 @@ function pctLabel(v) {
   return p === 100 ? "F" : String(p);
 }
 
-// hideZero: for the 24-cell INT A/B/DEV intensity rows, a 0 value is left blank rather than
-// printed as "0" -- with 24 columns per row, scanning for the nonzero ones (which dimmer/
-// device is actually on) is much faster when the many zeros don't visually compete with
-// them. Master/Bumps/Independents always show their number, even at 0 -- there's only one of
-// each, so there's no scanning problem to solve, and always-blank-at-0 would just look broken
-// there.
+// hideZero: in the 24-wide INT A/B/DEV rows, blanking 0 makes the nonzero values easier to
+// scan. Master/Bumps/Independents always show their number -- there's only one of each.
 function setBar(el, value, hideZero) {
   if (!el) return;
   const fill = el.querySelector(".fill");
@@ -118,9 +104,8 @@ function setBar(el, value, hideZero) {
   el.classList.toggle("nonzero", value > 0);
 }
 
-// The console's own name field is 3 short lines (6/6/5 chars), not one long string -- render
-// each on its own row exactly as the console lays it out, rather than word-wrapping a joined
-// string to whatever width this column happens to be.
+// The console's name field is 3 short lines, not one string -- render each line as-is to match
+// the console's own layout instead of word-wrapping.
 function setName(container, lines) {
   const lineEls = container.querySelectorAll(".name-line");
   for (let i = 0; i < lineEls.length; i++) {
@@ -128,16 +113,10 @@ function setName(container, lines) {
   }
 }
 
-// The Physical Faders row's per-fader label: what slider 1-24 actually means changes with
-// the fader mode, so the label does too. INT A/INT B/INT DEV and PARAM 1/2 are fixed,
-// deterministic labels -- not sent on the wire, since fader N always means the same thing in
-// these modes -- confirmed against the console's own physical/manual labeling by the
-// console's owner. Each entry is up to 3 lines (same 3-line label area the console's own
-// fields use elsewhere in this UI), so a wide name like "Strobe/Shutter" can be split instead
-// of clipping in the narrow 24-column layout -- pad3() below fills in any missing lines.
-// PARAM 2's list is a placeholder (same slot count as PARAM 1, all blank) for the console's
-// owner to fill in by hand once confirmed; leave PARAM_1_LABELS as the template to follow.
-
+// Physical Faders' per-fader label depends on the fader mode. INT A/B/DEV and PARAM 1/2 use
+// fixed labels (fader N always means the same thing in these modes, so nothing is sent on the
+// wire for them); MEMS's come live from the console (see physicalFaderLabelLines). Each entry
+// is up to 3 lines, matching the console's own name field, so long labels can split across lines.
 const p1_f = "Focus";
 const p1_c = "Color";
 const p1_bc = "Beam Control";
@@ -163,14 +142,11 @@ function pad3(lines) {
   return [lines?.[0] || "", lines?.[1] || "", lines?.[2] || ""];
 }
 
-// Generic: derives visual groups from a set of 1-indexed 3-line labels, by finding runs of
-// consecutive entries that share the same first line -- e.g. PARAM_1_LABELS' ["Focus","Pan"]
-// and ["Focus","Tilt"] are consecutive and share "Focus", so they become one 2-wide group
-// without a separate group definition to keep in sync by hand. A run only becomes a group if
-// it's at least 2 items AND its shared key is non-empty -- a lone item (e.g. "Intensity",
-// "Strobe") doesn't need a caption to group it with anything, and PARAM_2_LABELS' still-blank
-// entries (first line "") must never be treated as one giant 24-wide group.
-// Returns [{label, start, end}], both 1-indexed inclusive, in column order.
+// Derives visual groups from consecutive entries sharing the same first line (e.g.
+// ["Focus","Pan"]/["Focus","Tilt"] become one 2-wide "Focus" group), so groups don't need a
+// separate definition to keep in sync by hand. A run only counts as a group at >=2 entries with
+// a non-empty shared key -- lone items and PARAM_2_LABELS' still-blank entries never group.
+// Returns [{label, start, end}], 1-indexed inclusive, in column order.
 function computeLabelGroups(labels) {
   const groups = [];
   let i = 0;
@@ -184,19 +160,10 @@ function computeLabelGroups(labels) {
   return groups;
 }
 
-// Projects an absolute 1-24 group range onto whichever layout is actually active. At 24
-// columns-per-row there's exactly one meter row (row 1) and the caption goes in row 2, same
-// as before. Once wrapped to 12-per-row, the 24 meters occupy BOTH row 1 (items 1-12) and row
-// 2 (items 13-24) -- there's no longer a free row directly under either half for a
-// grid-row-less .group-bar to auto-place into (it would land in row 3 for EITHER half, since
-// that's the first row where 1-12 is free either way, merging both halves' captions into one
-// row). So each row's captions get an explicit grid-row of their own (3 for row 1's groups, 4
-// for row 2's), and a group that would have straddled the 12/13 boundary is split into two
-// segments -- one per wrapped row -- each re-numbered to that row's own 1-12 column space.
-// (Confirmed live: before this, the FADERS row's group-bars had explicit grid-column values up
-// to 24, which forced CSS Grid to create implicit columns to fit them even under the 12-column
-// media query, silently keeping the whole row 24-wide and defeating the wrap entirely -- the
-// bug this function exists to fix.)
+// Projects an absolute 1-24 group range onto whichever layout is active. At 24-per-row there's
+// one meter row, with captions in row 2. Once wrapped to 12-per-row, both halves occupy rows 1
+// and 2, so each half needs its own caption row (3 and 4) -- a group straddling the 12/13
+// boundary is split into two segments, each renumbered to its own row's 1-12 column space.
 function projectGroupSegments(g, columnsPerRow) {
   const segments = [];
   for (let rowStart = 1; rowStart <= 24; rowStart += columnsPerRow) {
@@ -210,11 +177,9 @@ function projectGroupSegments(g, columnsPerRow) {
   return segments;
 }
 
-// Generic: (re)draws a row's group-bar captions from a [{label, start, end}] list (1-indexed,
-// absolute 1-24 column range) -- removes whatever was there before (so this is safe to call
-// again whenever the applicable groups OR the wrap layout change) and appends one .group-bar
-// per projected segment (see projectGroupSegments), each with an explicit grid-column AND
-// grid-row so its placement doesn't depend on auto-placement guessing correctly.
+// (Re)draws a row's group-bar captions from a [{label, start, end}] list -- clears whatever was
+// there before (safe to call again whenever groups or layout change) and appends one .group-bar
+// per projected segment, each with an explicit grid-column/grid-row.
 function renderGroupBars(containerEl, groups, columnsPerRow) {
   containerEl.querySelectorAll(".group-bar").forEach(el => el.remove());
   for (const g of groups) {
@@ -229,32 +194,23 @@ function renderGroupBars(containerEl, groups, columnsPerRow) {
   }
 }
 
-// Computed once (PARAM_1_LABELS/PARAM_2_LABELS don't change at runtime) so both the group-bar
-// row and each individual fader label can agree on exactly which faders are actually grouped,
-// without recomputing/duplicating that logic in two places.
+// Computed once, statically, so the group-bar row and each fader label always agree on what's grouped.
 const PARAM_GROUPS = { "PARAM 1": computeLabelGroups(PARAM_1_LABELS), "PARAM 2": computeLabelGroups(PARAM_2_LABELS) };
 
-// Set in render() whenever the mode changes; read here and by relayoutAllRows() below. Declared
-// before its first use (relayoutAllRows() runs immediately, once, right after this) rather than
-// down next to render() -- a `let` is in its temporal dead zone until its declaration actually
-// runs, and that immediate call would otherwise hit it before render() ever gets a chance to.
+// Declared before relayoutAllRows()'s first call below (a `let` is in its temporal dead zone
+// until declared). Set on each mode change in render(); read here and in relayoutAllRows().
 let lastFaderGroupMode = null;
 
-// Draws the FADERS row's group-bars for whichever mode last rendered (lastFaderGroupMode,
-// updated in render()), using the layout that's ACTUALLY active right now. Called both from
-// render() (on a mode change) and from relayoutAllRows() below (on a wrap-layout change) --
-// a plain resize can cross the 1600px breakpoint with no mode change involved at all, and the
-// bars need to be re-projected either way.
+// Redraws for whichever mode last rendered, using whatever layout is active right now. Called
+// from render() on a mode change, and from relayoutAllRows() since a plain resize can cross the
+// 1600px breakpoint with no mode change involved.
 function updateFaderGroupBars() {
   renderGroupBars(document.getElementById("physical-faders"),
     PARAM_GROUPS[lastFaderGroupMode] || [], currentColumnsPerRow());
 }
 
-// Every 24-cell row's .meter positions (layoutMeterGrid) and the FADERS row's group-bars both
-// depend on the SAME columns-per-row layout, so both need redoing together whenever it changes
-// -- not just at page load, but on any resize that crosses the 1600px breakpoint, since
-// layoutMeterGrid's explicit grid-column/grid-row values are static once set and don't
-// magically update themselves the way plain CSS auto-placement would have.
+// layoutMeterGrid's grid-column/row values are static once set, so any resize crossing the
+// 1600px breakpoint needs meters and group-bars redone together, not just at page load.
 const ALL_INTENSITY_ROW_IDS = ["intensities-INT A", "intensities-INT B", "intensities-INT DEV", "physical-faders"];
 function relayoutAllRows() {
   const columnsPerRow = currentColumnsPerRow();
@@ -264,15 +220,10 @@ function relayoutAllRows() {
 relayoutAllRows();
 window.matchMedia("(max-width: 1600px)").addEventListener("change", relayoutAllRows);
 
-// A ["Group","Item"] entry's group name is already shown once, in the group-bar underneath the
-// whole group -- repeating it on every member fader's own label too (the original behavior)
-// just says "Focus" four times over for a 2-wide Focus group. So when this fader is actually
-// part of a group (checked against the same PARAM_GROUPS used to draw the bars, not just
-// "does this entry have a 2nd word" -- see below for why that distinction matters), only the
-// distinguishing 2nd word is shown here. A solo entry (e.g. ["Strobe","Shutter"]) that ISN'T
-// part of any real group -- computeLabelGroups only forms a group from >=2 consecutive
-// same-key entries, so a lone 2-word entry never gets a group-bar of its own -- keeps showing
-// both words exactly as before, since there's no group-bar standing in for the first one.
+// A grouped fader ("Focus"/"Pan") already shows its group name once, in the group-bar below --
+// showing only the distinguishing 2nd word here avoids repeating it per fader. Solo entries
+// (e.g. "Strobe"/"Shutter") are never grouped (groups need >=2 consecutive same-key entries),
+// so they keep showing both words.
 function paramFaderLabel(mode, i, entry) {
   const groups = PARAM_GROUPS[mode];
   if (!groups) {
@@ -286,21 +237,10 @@ function paramFaderLabel(mode, i, entry) {
   return [entry?.[1] || entry?.[0] || "", "", ""];
 }
 
-// INT A/INT B/INT DEV show the same patched channel name as that mode's own detail row below
-// (state.labels[mode][i], decode_0x09_labels in protocol.py) instead of a generic "Int A:1" --
-// fader N always means "channel N of this mode" so the generic label was pure redundancy once
-// the real name is known; left blank (not a "?" placeholder) when the console hasn't sent a
-// name for that slot, since an unnamed channel isn't an error state, just unlabeled.
-//
-// MEMS's per-fader names come from the console's own memory ("Look") names -- decoded by
-// decode_0x00_memory_name in protocol.py and fed into state.labels["MEMS"][page][slot]
-// (both 1-indexed) by server.py. MEMS has (at least) 4 memory pages -- hold the MEMS button,
-// press Bump 1-12 to pick one -- and state.mems_page (from decode_0x17_mems_page) tracks
-// which one is current, confirmed live across all 4 by matching the console's own LCD text.
-// The page/slot split itself is confirmed against real named memories on two different pages
-// (traces/mems_names_page1-2-3.log: "page2 mem1" decoded at page 2 slot 1, self-describing by
-// design) -- so unlike the earlier page-1-only guess, this now looks up the label under
-// whichever page is actually current.
+// INT A/B/DEV show the real patched channel name (state.labels[mode][i]) instead of a generic
+// label -- blank, not "?", when the console hasn't sent one for that slot yet. MEMS names come
+// from the console's per-page memory names, state.labels["MEMS"][memsPage][i] (see RE notes for
+// how the page/slot indexing was confirmed).
 function physicalFaderLabelLines(mode, i, labels, memsPage) {
   if (MODES.includes(mode)) return labels?.[mode]?.[i] || ["", "", ""];
   if (mode === "PARAM 1") return paramFaderLabel(mode, i, PARAM_1_LABELS[i - 1]);
@@ -309,11 +249,8 @@ function physicalFaderLabelLines(mode, i, labels, memsPage) {
   return ["", "", ""];
 }
 
-// state is null until the first type=0x16 message arrives (still "placeholder" until then),
-// then "on"/"off"/"blinking" (the console's own indicator LEDs are driven by a pair of colors
-// on the wire, and "blinking" is just the case where that pair disagrees).
-// keepLabel is for SOLO/BLACKOUT, whose .light already has a permanent text label baked into
-// the HTML -- skip overwriting it with the "?"/empty placeholder text.
+// state is null until the first type=0x16 update (still "placeholder"), then "on"/"off"/"blinking".
+// keepLabel: SOLO/BLACKOUT already carry a permanent label in the HTML -- don't overwrite it.
 function setIndicator(el, state, keepLabel) {
   if (!el) return;
   el.classList.toggle("placeholder", state === null);
@@ -324,13 +261,8 @@ function setIndicator(el, state, keepLabel) {
   }
 }
 
-// IND 1/2 show a live 0-255 value, like Master/Bumps -- via the same generic bar widget --
-// plus a click button showing the Independent's patched name. `value` and `clicked` are two
-// genuinely separate bits on the wire (confirmed against a real capture): `value` is a
-// stored/preset level that stays constant regardless of click state -- it does NOT drop to 0
-// on its own -- while `clicked` is whether that level is currently reaching output. So the
-// bar shows `clicked ? value : 0`, the same "stored level only reaches output while engaged"
-// pattern already confirmed for Bump buttons, not the raw value unconditionally.
+// value is a stored/preset level (stays constant regardless of click state); clicked is whether
+// it's currently reaching output. Bar shows `clicked ? value : 0`, same pattern as Bump buttons.
 function setIndependent(meterEl, btnEl, value, clicked, lines) {
   setBar(meterEl, (value === null || clicked !== true) ? 0 : value, true);
   const known = clicked !== null;
@@ -343,13 +275,9 @@ function rgbCss(color) {
   return color ? `rgb(${color[0]}, ${color[1]}, ${color[2]})` : "";
 }
 
-// The wire only ever confirmed a single brightness byte per fader (see decode_0x16_bump_catch
-// in protocol.py for why reading it as RGB was wrong) -- the LED's actual hue isn't sent
-// per-fader at all. Per the console's owner, checked against real hardware: the Bump LED is
-// green in every fader mode except MEMS, where it's red. So hue is picked here from the
-// currently known fader_mode, not from the wire value, and the wire byte only scales
-// brightness. Same RGB triples as --accent-green/--bad in style.css, so this row's colors
-// stay visually consistent with the rest of the UI.
+// The wire only ever carries a brightness value per fader, not hue -- see RE notes for the
+// Bump-LED hue-by-mode finding. Same RGB triples as --accent-green/--bad in style.css, so this
+// row stays visually consistent with the rest of the UI.
 const FADER_HUE_MEMS = [255, 92, 92];
 const FADER_HUE_DEFAULT = [211, 248, 181];
 function faderColor(mode, value) {
@@ -358,10 +286,8 @@ function faderColor(mode, value) {
   return hue.map(c => Math.round(c * scale));
 }
 
-// light is null until the first type=0x16 block for this fader has arrived, then either
-// {"blinking": true, "value_a": 0-255, "value_b": 0-255} (fader hasn't caught its stored value
-// yet -- the console's own Bump LED is genuinely flashing between these two brightness levels)
-// or {"blinking": false, "value": 0-255} (solid, latched/at rest).
+// light is null until the fader's first type=0x16 update, then either
+// {blinking:true, value_a, value_b} (flashing toward its stored value) or {blinking:false, value}.
 function setPhysicalFader(i, value, light, mode, labels, memsPage) {
   const meterEl = document.getElementById("physfader-" + i);
   setBar(meterEl, value, true);
@@ -415,11 +341,8 @@ function render(state) {
     setPhysicalFader(i, state.physical_faders?.[i - 1] ?? 0, state.physical_fader_lights?.[i - 1],
       state.fader_mode, state.labels, state.mems_page);
   }
-  // Only PARAM 1/2 have groupable labels (a shared first word across consecutive faders) --
-  // INT A/B/DEV show real patched channel names (nothing to group) and MEMS's are free-form
-  // memory names. Recomputed only when the mode actually changes, not on every render tick --
-  // PARAM_GROUPS is static, never depends on live state. Same PARAM_GROUPS paramFaderLabel()
-  // uses, so the bar and the per-fader labels can never disagree about what's grouped.
+  // Only PARAM 1/2 have groupable labels; recomputed on mode change only, since PARAM_GROUPS is
+  // static and shared with paramFaderLabel() -- the bar and per-fader labels can't disagree.
   if (state.fader_mode !== lastFaderGroupMode) {
     lastFaderGroupMode = state.fader_mode;
     updateFaderGroupBars();

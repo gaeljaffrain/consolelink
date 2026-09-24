@@ -16,10 +16,9 @@ plain http.server serves a static page over Server-Sent Events (GET
 decoded, rather than the page polling and silently skipping whatever changed
 between polls.
 
-Reuses the USB protocol implementation from protocol.py rather than
-re-deriving it -- see that module's docstring for the
-wire-protocol details (idle poll, announce/ack handshake, request_type(),
-type=0x0e/0x17 decoding).
+Reuses the USB protocol implementation from protocol.py rather than re-deriving it -- see that
+module's docstring for the wire-protocol details (idle poll, announce/ack handshake,
+request_type(), type=0x0e/0x17 decoding).
 
 Shows: the per-slot Intensity values (INT A, INT B, INT DEV) for all 24
 fader slots -- these are the console's stored intensity levels, not raw
@@ -69,11 +68,8 @@ state = {
     # fader_mode == "MEMS"; None until a MEMS type=0x17 has actually been seen.
     "intensities": {mode: [0] * 24 for mode in INTENSITY_MODES},
     "labels": dict({mode: {} for mode in INTENSITY_MODES}, MEMS={}),  # MEMS is nested one
-    # level deeper than the other families: {page (1-indexed): {slot (1-indexed): [lines]}},
-    # from type=0x00 (decode_0x00_memory_name). Confirmed only PARTIAL: the connect-time
-    # catalog dump sends at most one representative slot per visited page, not every named
-    # memory on it (see decode_0x00_memory_name's docstring) -- a missing slot here does not
-    # mean nothing is recorded there, only that this dump didn't happen to include it.
+    # level deeper: {page (1-indexed): {slot (1-indexed): [lines]}}, from type=0x00
+    # (decode_0x00_memory_name in protocol.py -- only partial, see its docstring).
     "independent_labels": {},
     "physical_faders": [0] * 24,  # live combined value per fader, mode-agnostic (type=0x0e)
     "physical_fader_lights": [None] * 24,  # None until the first type=0x16 seen for that
@@ -100,12 +96,9 @@ def update_state(**kwargs):
         state["last_update"] = time.time()
         state_condition.notify_all()
 
-# Off by default -- run with --debug to get per-control change logging (which control
-# changed, when, to what) plus a liveness heartbeat and visibility into any announce/ack
-# handshake failures. This is what found the decode_announce stride bug, and is worth keeping
-# around for the next time something looks wrong: it distinguishes "nothing arrived on the
-# wire" from "arrived but decoded/rendered wrong" far faster than guessing. Set from args in
-# main().
+# Off by default -- run with --debug for per-control change logging, a liveness heartbeat, and
+# announce/ack handshake visibility. Distinguishes "nothing arrived on the wire" from "arrived
+# but decoded/rendered wrong" far faster than guessing. Set from args in main().
 DEBUG = False
 _last_logged_master = None
 _last_logged_intensities = {mode: [0] * 24 for mode in INTENSITY_MODES}
@@ -124,14 +117,10 @@ def handle_payload(obj_type, data):
                 _last_logged_master = master
             with state_condition:
                 mode = state["fader_mode"]
-                # Gated on mode being one of the 3 known INTENSITY_MODES, not just "not None":
-                # mode can also be confirmed as PARAM 1/PARAM 2/MEMS (valid per ALL_FADER_MODES,
-                # via a real type=0x17), but state["intensities"]/_last_logged_intensities only
-                # have entries for INT A/INT B/INT DEV -- whether type=0x0e's raw fader value
-                # even means "intensity" in those other modes is still an open RE question (see
-                # the protocol.py module docstring/RE notes Part 42), so there's no bank to
-                # attribute it to yet, and indexing either dict with "PARAM 1" is a KeyError, not
-                # a graceful skip.
+                # Gated on the 3 known INTENSITY_MODES, not just "not None": mode can also be
+                # PARAM 1/PARAM 2/MEMS, but state["intensities"] only has INT A/B/DEV entries --
+                # whether type=0x0e's raw fader value even means "intensity" in those other
+                # modes is still an open RE question, and indexing with "PARAM 1" is a KeyError.
                 if mode in INTENSITY_MODES:
                     if DEBUG and faders != _last_logged_intensities[mode]:
                         changed = {i + 1: (_last_logged_intensities[mode][i], v)
@@ -228,13 +217,10 @@ def handle_payload(obj_type, data):
             state["last_update"] = time.time()
             state_condition.notify_all()
 
-    # Full intensity table snapshot (3x24) for all three intensity sub-modes at once, not just
-    # the currently active one.
+    # Full intensity table (3x24) for all three intensity sub-modes at once -- see
+    # decode_0x0f_all_modes in protocol.py -- so the two dimmed/inactive rows in the UI get
+    # real data too, not just whatever they were last set to while active.
     elif obj_type == 0x0f:
-        # Unlike 0x0e (mode-agnostic -- only ever reports whichever fader mode is currently
-        # active), this holds all three intensity banks at once, so the
-        # OTHER two modes' rows (the dimmed ones in the UI) get real data too, not just
-        # whatever they were last set to while they happened to be active.
         all_modes = sfl.decode_0x0f_all_modes(data)
         if all_modes is not None:
             with state_condition:
@@ -294,17 +280,9 @@ def poll_forever(stop_event):
                                  f"type=0x{obj_type:02x} len={len(data)} raw={data.hex()}\n")
                 capture_f.flush()
 
-        # Proactively ask for the current fader MODE before asking for fader/master/bumps
-        # state -- type=0x0e is mode-agnostic on the wire (it just reports whatever's on the
-        # physical faders right now, for whichever mode happens to be active), and until a
-        # real type=0x17 is seen, state["fader_mode"] stays None (unknown) rather than
-        # guessing -- handle_payload() drops 0x0e data entirely while it's None.
-        # Asking for 0x0e first, before knowing the true mode, used to silently mislabel its
-        # data as INT A whenever the console was actually in INT B or INT DEV at connect
-        # (found live: "only intensity A are read at startup"). request_type() works for
-        # 0x17 exactly like it does for 0x0e, returning the true current mode on demand (not
-        # just on a change, unlike the passive announce) --
-        # confirmed live with debug_ask_0x17.py against a console sitting in INT DEV mode.
+        # Ask for the fader MODE before fader/master/bumps state -- type=0x0e is mode-agnostic
+        # on the wire, and handle_payload() drops 0x0e data entirely while state["fader_mode"]
+        # is still None.
         mode_type, mode_data = link.request_type(0x17)
         if mode_type is not None:
             log_capture("requested", mode_type, mode_data)
@@ -312,13 +290,10 @@ def poll_forever(stop_event):
         elif DEBUG:
             print("[webapp] proactive 0x17 request got no reply", file=sys.stderr)
 
-        # Proactively ask for current fader/master/bumps state instead of relying on the
-        # console's own unprompted announce, which on macOS loses a race against the OS's own
-        # automatic USB HID driver probing almost every time -- confirmed live that the
-        # console replies with current data to this ack sequence even without ever having
-        # announced it first. This is what actually fixes "faders don't show up without
-        # touching a control," reliably, independent of any timing race. Sent after the mode
-        # request above, so it gets bucketed correctly.
+        # Ask for current fader/master/bumps state directly rather than relying on the
+        # console's own unprompted announce, which loses a race against macOS's automatic USB
+        # HID driver probing almost every time. Sent after the mode request above, so it gets
+        # bucketed correctly.
         obj_type, data = link.request_type(0x0e)
         if obj_type is not None:
             log_capture("requested", obj_type, data)
@@ -326,11 +301,9 @@ def poll_forever(stop_event):
         elif DEBUG:
             print("[webapp] proactive 0x0e request got no reply", file=sys.stderr)
 
-        # type=0x0f holds all three intensity banks at once -- this is what actually gets
-        # INT B/INT DEV populated on connect too, not just whichever mode happens to be
-        # active (found live: "only intensity A are read at startup" persisted even after the
-        # mode-ordering fix above, because that fix only affects 0x0e, which is mode-agnostic
-        # by nature and structurally can't report a mode that isn't active).
+        # type=0x0f holds all three intensity banks at once, so INT B/INT DEV get real data on
+        # connect too, not just whichever mode happens to be active (0x0e is mode-agnostic and
+        # structurally can't report a mode that isn't active).
         all_type, all_data = link.request_type(0x0f)
         if all_type is not None:
             log_capture("requested", all_type, all_data)
@@ -355,10 +328,9 @@ def poll_forever(stop_event):
         gui_requests_sent = False
         while not stop_event.is_set():
             if DEBUG and time.time() - last_heartbeat >= 10.0:
-                # Distinguishes "still polling fine, just nothing new to report" from a
-                # genuine stall -- if this line stops appearing, the loop itself is stuck
-                # somewhere above (not in the announce/ack path, which has its own DROPPED
-                # logging), most likely blocked in a read/write call that isn't timing out.
+                # Distinguishes "still polling fine, nothing new" from a genuine stall -- if
+                # this stops appearing, the loop is stuck above, likely in a read/write that
+                # isn't timing out (the announce/ack path has its own DROPPED logging instead).
                 print(f"[poll] t={time.time() - _t_start:7.3f}  alive, "
                       f"good_headers={good_headers} write_fails={link.write_errors} "
                       f"read_timeouts={link.read_timeouts}", file=sys.stderr)
@@ -367,13 +339,10 @@ def poll_forever(stop_event):
             if not link.write_header(0, 0, (0, 0, 0, 0)):
                 consecutive_write_fails += 1
                 if consecutive_write_fails > 20:
-                    # Repeated write failures right on the OUT pipe (as opposed to a device
-                    # that's simply gone) usually means a previous session left the bulk pipe
-                    # stalled -- e.g. a process that held the interface got killed without
-                    # running its cleanup (SIGTERM skips `finally` blocks; a background thread
-                    # being torn down at interpreter exit skips them too). A plain re-claim
-                    # doesn't clear that; a USB port reset does, without needing a physical
-                    # unplug/replug.
+                    # Repeated OUT-pipe write failures (as opposed to a device that's simply
+                    # gone) usually mean a previous session left the bulk pipe stalled -- a
+                    # plain re-claim doesn't clear that, but a USB port reset does, without
+                    # needing a physical unplug/replug.
                     print("[webapp] too many write failures, resetting device", file=sys.stderr)
                     needs_reset = True
                     break
@@ -527,13 +496,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class QuietThreadingHTTPServer(ThreadingHTTPServer):
-    """`handle_error` is a SERVER hook (called from ThreadingMixIn.process_request_thread),
-    not a request-handler one -- it does NOT belong on Handler above; overriding it there
-    silently never fires. socketserver's default here prints a full traceback for ANY
-    exception while reading/writing a connection, including a browser tab closing or
-    reloading mid-request, which resets the TCP connection and is completely routine,
-    especially for a long-lived SSE stream. Not a crash (only that one connection's
-    thread ends; the server and every other connection keep running) -- just noisy."""
+    """`handle_error` is a SERVER hook, not a request-handler one -- overriding it on Handler
+    above would silently never fire. Suppresses socketserver's default full-traceback print for
+    a closed/reset connection (routine for a long-lived SSE stream, e.g. a browser tab closing
+    mid-request) -- not a crash, just noisy; the server and every other connection keep running."""
 
     def handle_error(self, request, client_address):
         exc_type = sys.exc_info()[0]
@@ -558,11 +524,9 @@ def main():
     CAPTURE_PATH = args.capture
 
     stop_event = threading.Event()
-    # Not a daemon thread: daemon threads are hard-killed at interpreter exit with no
-    # chance to run their `finally` cleanup, which is exactly what would leave the USB
-    # interface claimed/pipes stalled for the next run (see the `needs_reset` comment
-    # above). Joining it below ensures usb.util.release_interface() actually runs on a
-    # normal Ctrl+C shutdown.
+    # Not a daemon thread: those are hard-killed at interpreter exit with no chance to run
+    # their `finally` cleanup, which would leave the USB interface claimed/pipes stalled for
+    # the next run. Joining it below ensures release_interface() runs on a normal Ctrl+C.
     poll_thread = threading.Thread(target=poll_forever, args=(stop_event,))
     poll_thread.start()
 
