@@ -42,3 +42,9 @@ def test_led_colors_reach_state(server, capture):
 def test_fader_mode_and_mems_page(server, capture):
     server.handle_payload(0x17, capture("fader_modes.log").tagged("mems_page3").data)
     assert (server.state["fader_mode"], server.state["mems_page"]) == ("MEMS", 3)
+
+
+def test_lcd_text_reaches_state(server, capture):
+    assert server.state["lcd"] is None
+    server.handle_payload(0x15, capture("lcd.log").tagged("mems_held").data)
+    assert server.state["lcd"][2:] == ["Memory page:1       ", "Bump 1-12 to change "]

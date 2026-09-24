@@ -32,7 +32,8 @@ faders) -- shown as lights, decoded from type=0x0c. Also a dedicated
 Physical Faders row: 24 bar+light indicators, one per physical fader,
 mode-agnostic (type=0x0e for the live value, type=0x16 for the Bump LED --
 solid/color-proportional once caught, blinking while the physical fader
-hasn't yet caught its stored logical value after a mode switch).
+hasn't yet caught its stored logical value after a mode switch). And the console's two
+LCDs, mirrored as text (type=0x15).
 """
 import argparse
 import json
@@ -86,6 +87,8 @@ state = {
     "blackout": None,
     "indicator_lights": {"solo": None, "blackout": None},  # the console's own Solo/BlackOut
     # LED colors, same shape as physical_fader_lights -- see decode_0x16_indicator_lights
+    "lcd": None,  # None until the first type=0x15; then the console's 4 LCD lines,
+    # [LCD 1 line 1, LCD 1 line 2, LCD 2 line 1, LCD 2 line 2] -- see decode_0x15
     "last_update": 0.0,
 }
 state_lock = threading.Lock()
@@ -231,6 +234,13 @@ def handle_payload(obj_type, data):
                     state["intensities"][mode_name] = intensities
                 state["last_update"] = time.time()
                 state_condition.notify_all()
+    # The console's two LCDs, 2 x 20 chars each, resent whenever either display changes
+    elif obj_type == 0x15:
+        lines = sfl.decode_0x15(data)
+        if lines is not None:
+            if DEBUG and lines != state["lcd"]:
+                print(f"[lcd] t={time.time() - _t_start:7.3f}  {lines!r}", file=sys.stderr)
+            update_state(lcd=lines)
     # MEMS memory ("Look") names, connect-time only -- see decode_0x00_memory_name in
     # protocol.py for the confirmed record shape (page, slot, both 0-indexed).
     elif obj_type == 0x00:
@@ -314,8 +324,8 @@ def poll_forever(stop_event):
         elif DEBUG:
             print("[webapp] proactive 0x0f request got no reply", file=sys.stderr)
 
-        # Independents and Solo/BlackOut are fetched directly.
-        for type_byte, label in ((0x0c, "0x0c"), (0x16, "0x16")):
+        # Independents, Solo/BlackOut and the LCD text are fetched directly.
+        for type_byte, label in ((0x0c, "0x0c"), (0x16, "0x16"), (0x15, "0x15")):
             obj_type, data = link.request_type(type_byte)
             if obj_type is not None:
                 log_capture("requested", obj_type, data)

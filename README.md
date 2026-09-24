@@ -1,7 +1,7 @@
 # consolelink
 
 Talk to an ETC SmartFade ML lighting console over USB and see its live state
-(faders, master, bumps, independents, solo/blackout) without SmartSoft.
+(faders, master, bumps, independents, solo/blackout, both LCDs) without SmartSoft.
 
 Built from a reverse-engineered wire protocol; see [`protocol.py`](protocol.py)'s
 module docstring for the details.
@@ -19,7 +19,7 @@ traces could be matched to a specific action.
 | [`protocol.py`](protocol.py) | Shared library: USB framing, the idle-poll/announce/ack handshake, and decoders for every known message type. Everything else imports this rather than re-deriving the protocol. |
 | [`listen.py`](listen.py) | Terminal tool — connects and prints every control change live until Ctrl+C. |
 | [`server.py`](server.py) | Local web app — polls the console in a background thread and serves [`index.html`](index.html) over Server-Sent Events, so a browser tab shows live values. |
-| [`index.html`](index.html) | Static single-page UI for `server.py`: intensity meters (INT A / INT B / INT DEV), physical faders, and most important buttons and indicators, like BlackOut and Master. |
+| [`index.html`](index.html) | Static single-page UI for `server.py`: intensity meters (INT A / INT B / INT DEV), physical faders, most important buttons and indicators, like BlackOut and Master, and a mirror of the console's two LCDs. |
 | [`app.js`](app.js) | Front-end logic for `index.html`: builds the meter grid, connects to the SSE stream, and renders each incoming state update. |
 | [`environment.yml`](environment.yml) | Conda-forge environment spec (recommended -- see Requirements below). |
 | [`requirements.txt`](requirements.txt) | Plain pip dependencies, for setups not using conda. |

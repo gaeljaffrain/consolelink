@@ -1,0 +1,10 @@
+# Byte-exact excerpt of real console traffic -- regenerated, don't hand-edit.
+# The console's two LCDs (type=0x15): marker byte 'P', then 4 lines of 20 chars --
+# LCD 1 line 1, LCD 1 line 2, LCD 2 line 1, LCD 2 line 2. Text matched the console's own
+# displays.
+# @focus_page: Device parameter screen: Pan/Tilt (FOCUS) on LCD 1, Int. on LCD 2, page 1/2.
+t=  18.292 acked    type=0x15 len=81 raw=5050616e20202020464f435553202054696c7420205b2020205d2020436f61727365205b2020205d2020202020202020496e742e202020202020323a20202020202020205b2020205d2020202020312f32
+# @mems_held: MEMS held down: LCD 1 blank, LCD 2 shows the memory page prompt.
+t=  20.854 acked    type=0x15 len=81 raw=50202020202020202020202020202020202020202020202020202020202020202020202020202020204d656d6f727920706167653a312020202020202042756d7020312d313220746f206368616e676520
+# @int_bar_graph: INT A screen: per-fader output bar graphs (custom glyph bytes 0x84, 0x81 for faders 1 and 2), fade times U 5.0 / D 5.0 on LCD 2.
+t=  17.836 acked    type=0x15 len=81 raw=50496e74413a20312084812020202020202020202020202020203133202020202020202020202020202020202020202020202020202020205520352e302020202020202020202020202020204420352e30

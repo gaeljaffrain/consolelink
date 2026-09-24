@@ -36,8 +36,9 @@ Decodes:
     all three intensity sub-mode banks (INT A/INT B/INT DEV) at once --
     `[header:1][INT A: 24][INT B: 24][INT DEV: 24]`.
   - type=0x11 (209 bytes): Crossfader Live, Crossfader Next.
-  - type=0x15 (81 bytes): the console's two physical LCDs, verbatim ASCII --
-    1 marker byte + 80 characters (2 displays x 2 lines x 20 chars). This is
+  - type=0x15 (81 bytes): the console's two physical LCDs, verbatim ASCII (plus
+    8 bar-graph glyphs, see decode_0x15) -- 1 marker byte + 80 characters
+    (2 displays x 2 lines x 20 chars). This is
     also currently the only way to see the 3 wheels' live values -- they
     don't touch type=0x0e/0x11 at all, only this LCD text and a
     correlated-but-undecoded type=0x16.
@@ -175,11 +176,30 @@ def decode_0x11(data):
     return values
 
 
+# The console's LCDs have 8 custom glyphs, sent as bytes 0x80-0x87. The only screen seen using
+# them is the INT-mode one ("IntA: 1" / "13", per the manual "the current output of the selected
+# fader mode, with bar graphs"): one cell per fader, faders 1-12 in line 1 and 13-24 in line 2,
+# columns 8-19. A fader brought down to 0 steps 0x85, 0x84, ... 0x80 and then shows a space, so
+# 0x80 + k reads as a bar k+1 eighths tall -- drawn here with the matching Unicode block elements.
+LCD_BAR_GLYPHS = "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588"  # 1/8 .. 8/8 bars
+
+
+def _lcd_char(b):
+    if 0x20 <= b < 0x7f:
+        return chr(b)
+    if 0x80 <= b <= 0x87:
+        return LCD_BAR_GLYPHS[b - 0x80]
+    return "\ufffd"
+
+
 def decode_0x15(data):
-    """type=0x15 (81 bytes): [marker byte] + 80 ASCII chars = both LCDs, 2 lines x 20 chars each."""
+    """type=0x15 (81 bytes): [marker byte] + 80 chars = both LCDs, 2 lines x 20 chars each.
+
+    Returns [LCD 1 line 1, LCD 1 line 2, LCD 2 line 1, LCD 2 line 2]. Plain ASCII, except the
+    bar-graph glyphs (see LCD_BAR_GLYPHS); any other non-ASCII byte becomes U+FFFD."""
     if len(data) < 81:
         return None
-    text = data[1:81].decode("ascii", errors="replace")
+    text = "".join(_lcd_char(b) for b in data[1:81])
     lines = [text[i:i + 20] for i in range(0, 80, 20)]
     return lines
 

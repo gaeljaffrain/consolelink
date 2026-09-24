@@ -371,6 +371,18 @@ function setPhysicalFader(i, value, light, mode, labels, memsPage) {
   meterEl.style.setProperty("--bar-color", barColor(light));
 }
 
+// lines is null until the first type=0x15, then [LCD 1 line 1, LCD 1 line 2, LCD 2 line 1,
+// LCD 2 line 2], 20 chars each, shown as-is (spacing included) in a monospace panel.
+function setLcds(lines) {
+  ["lcd-1", "lcd-2"].forEach((id, n) => {
+    const el = document.getElementById(id);
+    el.classList.toggle("placeholder", !lines);
+    el.querySelectorAll(".lcd-line").forEach((lineEl, i) => {
+      lineEl.textContent = lines?.[n * 2 + i] ?? "";
+    });
+  });
+}
+
 let lastUpdate = 0;
 let lastState = null;  // re-rendered as-is when the saturation slider moves
 
@@ -424,6 +436,8 @@ function render(state) {
   setIndicator(document.getElementById("ind-solo"), state.solo, state.indicator_lights?.solo, true);
   setIndicator(document.getElementById("ind-blackout"), state.blackout,
     state.indicator_lights?.blackout, true);
+
+  setLcds(state.lcd);
 
   lastUpdate = state.last_update;
 }
