@@ -278,32 +278,38 @@ function rgbCss(color) {
   return color ? `rgb(${color[0]}, ${color[1]}, ${color[2]})` : "";
 }
 
-// Colors the console itself sends (bump LEDs, FADERS bars, Solo/BlackOut) all go through
-// consoleColor(); the page's own handpicked palette in style.css doesn't. saturation: 0 = grey,
-// 1 = the console's own color, tuned by the header slider and remembered per browser.
+// Colors the console itself sends (bump LEDs, FADERS bars, Solo/BlackOut) and the page's
+// LED-matching palette (PALETTE_TOKENS below) all go through softenColor(). saturation: the
+// header's Soft <-> Native slider, 1 = the LED's own color, lower = softer.
 const SATURATION_KEY = "consolelink.saturation";
 let saturation = 0.6;
 try {
-  //const stored = parseFloat(localStorage.getItem(SATURATION_KEY));
+  const stored = parseFloat(localStorage.getItem(SATURATION_KEY));
   if (stored >= 0 && stored <= 1) saturation = stored;
 } catch (e) { /* storage unavailable -- keep the default */ }
 
 // Scales the color's chroma in OKLab, leaving its perceived lightness alone: a dim 0x46 MEMS LED
-// stays dim at any saturation, and white/grey are unaffected. (Plain sRGB luma would instead
-// darken red and blue as they desaturate -- pure blue's luma is only 18/255.)
+// stays dim at any saturation. (Plain sRGB luma would instead darken red and blue as they
+// desaturate -- pure blue's luma is only 18/255.) White/grey have no chroma to take away, so
+// Soft dims them a little instead: lightness drops by up to NEUTRAL_SOFTEN * (1 - saturation).
+const NEUTRAL_SOFTEN = 0.25;
 const srgbToLinear = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
 const linearToSrgb = c => {
   c = c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055;
   return Math.round(Math.min(1, Math.max(0, c)) * 255);
 };
-function consoleColor(rgb) {
+function softenColor(rgb) {
   const [r, g, b] = rgb.map(srgbToLinear);
   const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
   const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
   const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
-  const L = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s;
-  const A = (1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s) * saturation;
-  const B = (0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s) * saturation;
+  const L0 = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s;
+  const A0 = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s;
+  const B0 = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s;
+  const neutral = Math.hypot(A0, B0) < 0.02;
+  const L = neutral ? L0 * (1 - NEUTRAL_SOFTEN * (1 - saturation)) : L0;
+  const A = A0 * saturation;
+  const B = B0 * saturation;
   const l2 = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3;
   const m2 = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3;
   const s2 = (L - 0.0894841775 * A - 1.2914855480 * B) ** 3;
@@ -320,8 +326,8 @@ function consoleColor(rgb) {
 function setLightColors(el, light) {
   const a = light && (light.blinking ? light.color_a : light.color);
   const b = light && (light.blinking ? light.color_b : light.color);
-  el.style.setProperty("--color-a", a ? consoleColor(a) : "");
-  el.style.setProperty("--color-b", b ? consoleColor(b) : "");
+  el.style.setProperty("--color-a", a ? softenColor(a) : "");
+  el.style.setProperty("--color-b", b ? softenColor(b) : "");
 }
 
 // The FADERS bar takes only the hue of its bump LED, at full brightness: in INT modes the LED
@@ -330,12 +336,32 @@ function setLightColors(el, light) {
 function barColor(light) {
   const c = light && (light.blinking ? light.color_a : light.color);
   const max = c ? Math.max(...c) : 0;
-  return max ? consoleColor(c.map(v => Math.round(v * 255 / max))) : "";
+  return max ? softenColor(c.map(v => Math.round(v * 255 / max))) : "";
+}
+
+// The page's own LED-matching colors (style.css :root) get the same Soft <-> Native treatment.
+// Their base values are read once, before the first override, so style.css stays the source of
+// truth; applyPalette() then writes the softened versions back as inline :root overrides.
+const PALETTE_TOKENS = ["--master", "--bumps", "--accent-green", "--accent-red"];
+function hexToRgb(hex, token) {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!m) {
+    throw new Error(`${token} in style.css must be a 6-digit hex color for softenColor(), ` +
+      `got "${hex}".`);
+  }
+  return m.slice(1).map(h => parseInt(h, 16));
+}
+const rootStyle = getComputedStyle(document.documentElement);
+const paletteBase = Object.fromEntries(PALETTE_TOKENS.map(
+  token => [token, hexToRgb(rootStyle.getPropertyValue(token).trim(), token)]));
+function applyPalette() {
+  PALETTE_TOKENS.forEach(token =>
+    document.documentElement.style.setProperty(token, softenColor(paletteBase[token])));
 }
 
 // light is null until the fader's first type=0x16 update, then either
 // {blinking:true, color_a, color_b} (flashing toward its stored value) or {blinking:false, color}
-// -- [r, g, b] straight from the console (green, or red in MEMS), through consoleColor().
+// -- [r, g, b] straight from the console (green, or red in MEMS), through softenColor().
 function setPhysicalFader(i, value, light, mode, labels, memsPage) {
   const meterEl = document.getElementById("physfader-" + i);
   setBar(meterEl, value, true);
@@ -404,10 +430,15 @@ function render(state) {
 }
 
 const saturationInput = document.getElementById("saturation");
+// Clamped to the slider's own range, so a value saved under an older range can't go past it.
+saturation = Math.min(Math.max(saturation, parseFloat(saturationInput.min)),
+  parseFloat(saturationInput.max));
 saturationInput.value = saturation;
+applyPalette();
 saturationInput.addEventListener("input", () => {
   saturation = parseFloat(saturationInput.value);
   try { localStorage.setItem(SATURATION_KEY, String(saturation)); } catch (e) { /* not persisted */ }
+  applyPalette();
   if (lastState) render(lastState);
 });
 

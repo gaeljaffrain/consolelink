@@ -10,12 +10,12 @@
   --ok: #5cff8f;
   --bad: #ff5c5c;
 
-  /* SmartFadeML style colors */
-  --master: #5647f4;
-  --bumps: #808080;
-  --accent-green: #d3f8b5;
-  --accent-red: #ff5c5c;
-  --whitebutton: #ffffff;
+  /* SmartFadeML style colors -- the console's pure LED colors. app.js reads these once and
+     overrides them with softened versions per the Soft <-> Native slider (applyPalette()). */
+  --master: #0000ff;
+  --bumps: #ffffff;
+  --accent-green: #00ff00;
+  --accent-red: #ff0000;
   --blink-duration: 0.5s;
 }
 /* Below this window width, each 24-cell intensity row wraps into two rows of 12 (see the
@@ -104,7 +104,7 @@ h1 {
   color: #0b0c0e;
 }
 .section-title .mode-pill.active-M {
-  background: #ff0000;
+  background: var(--accent-red);
   color: var(--text);
 }
 
@@ -452,7 +452,7 @@ h1 {
    blue for BLACKOUT -- falling back to the page's colors before the first type=0x16. Glow and
    text stay the page's own, for contrast. IDs so these beat the generic .ind-button.on rules. */
 #ind-solo.on .light {
-  background: var(--color-a, var(--whitebutton));
+  background: var(--color-a, var(--bumps));
   border-color: var(--color-a, var(--bumps));
   /* Text color, not button color: white background needs dark text for contrast, distinct
      from BLACKOUT's blue background below which needs the opposite. */
@@ -471,7 +471,7 @@ h1 {
    while BlackOut itself is off. Falls back to the page's on-color / inactive background.
    steps(1) for a discrete flash, not a smooth fade. */
 @keyframes blink-solo {
-  0%, 49%   { background: var(--color-a, var(--whitebutton)); border-color: var(--color-a, var(--bumps)); color: var(--darktext); box-shadow: 0 0 10px var(--bumps); }
+  0%, 49%   { background: var(--color-a, var(--bumps)); border-color: var(--color-a, var(--bumps)); color: var(--darktext); box-shadow: 0 0 10px var(--bumps); }
   50%, 100% { background: var(--color-b, var(--grid)); border-color: var(--color-b, var(--grid)); color: var(--dim); box-shadow: none; }
 }
 @keyframes blink-blackout {
