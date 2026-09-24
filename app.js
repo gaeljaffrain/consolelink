@@ -275,19 +275,9 @@ function rgbCss(color) {
   return color ? `rgb(${color[0]}, ${color[1]}, ${color[2]})` : "";
 }
 
-// The wire only ever carries a brightness value per fader, not hue -- see RE notes for the
-// Bump-LED hue-by-mode finding. Same RGB triples as --accent-green/--bad in style.css, so this
-// row stays visually consistent with the rest of the UI.
-const FADER_HUE_MEMS = [255, 92, 92];
-const FADER_HUE_DEFAULT = [211, 248, 181];
-function faderColor(mode, value) {
-  const hue = mode === "MEMS" ? FADER_HUE_MEMS : FADER_HUE_DEFAULT;
-  const scale = value / 255;
-  return hue.map(c => Math.round(c * scale));
-}
-
 // light is null until the fader's first type=0x16 update, then either
-// {blinking:true, value_a, value_b} (flashing toward its stored value) or {blinking:false, value}.
+// {blinking:true, color_a, color_b} (flashing toward its stored value) or {blinking:false, color}
+// -- [r, g, b] straight from the console (green, or red in MEMS).
 function setPhysicalFader(i, value, light, mode, labels, memsPage) {
   const meterEl = document.getElementById("physfader-" + i);
   setBar(meterEl, value, true);
@@ -295,13 +285,13 @@ function setPhysicalFader(i, value, light, mode, labels, memsPage) {
   const lightEl = document.getElementById("physfader-" + i + "-light");
   lightEl.classList.toggle("placeholder", light == null);
   if (light && light.blinking) {
-    lightEl.style.setProperty("--color-a", rgbCss(faderColor(mode, light.value_a)));
-    lightEl.style.setProperty("--color-b", rgbCss(faderColor(mode, light.value_b)));
+    lightEl.style.setProperty("--color-a", rgbCss(light.color_a));
+    lightEl.style.setProperty("--color-b", rgbCss(light.color_b));
     lightEl.style.background = "";
     lightEl.classList.add("blinking");
   } else {
     lightEl.classList.remove("blinking");
-    lightEl.style.background = light ? rgbCss(faderColor(mode, light.value)) : "";
+    lightEl.style.background = light ? rgbCss(light.color) : "";
   }
 }
 
@@ -337,6 +327,7 @@ function render(state) {
   setBar(document.getElementById("fader-master"), state.master);
   setBar(document.getElementById("bumps"), state.bumps);
 
+  document.getElementById("section-physical").classList.toggle("mems", state.fader_mode === "MEMS");
   for (let i = 1; i <= 24; i++) {
     setPhysicalFader(i, state.physical_faders?.[i - 1] ?? 0, state.physical_fader_lights?.[i - 1],
       state.fader_mode, state.labels, state.mems_page);

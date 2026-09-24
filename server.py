@@ -69,14 +69,13 @@ state = {
     "intensities": {mode: [0] * 24 for mode in INTENSITY_MODES},
     "labels": dict({mode: {} for mode in INTENSITY_MODES}, MEMS={}),  # MEMS is nested one
     # level deeper: {page (1-indexed): {slot (1-indexed): [lines]}}, from type=0x00
-    # (decode_0x00_memory_name in protocol.py -- only partial, see its docstring).
+    # (decode_0x00_memory_name in protocol.py) -- one entry per recorded memory.
     "independent_labels": {},
     "physical_faders": [0] * 24,  # live combined value per fader, mode-agnostic (type=0x0e)
     "physical_fader_lights": [None] * 24,  # None until the first type=0x16 seen for that
-    # fader; then {"blinking": True, "value_a": 0-255, "value_b": 0-255} or
-    # {"blinking": False, "value": 0-255} -- brightness only, not a color; see
-    # decode_0x16_bump_catch in protocol.py for why, and fader_mode below for the hue
-    # (console LED is green in every mode except MEMS, which is red)
+    # fader; then {"blinking": True, "color_a": [r, g, b], "color_b": [r, g, b]} or
+    # {"blinking": False, "color": [r, g, b]} -- the console's own LED color, see
+    # decode_0x16_bump_catch in protocol.py
     "bumps": 0,
     "master": 0,
     "independent1": None,  # None until the first type=0x0c message; then a raw 0-255 value

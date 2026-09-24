@@ -42,12 +42,9 @@ Decodes:
     don't touch type=0x0e/0x11 at all, only this LCD text and a
     correlated-but-undecoded type=0x16.
   - type=0x16 (637 bytes, mostly undecoded): bytes 517-528 are two adjacent
-    6-byte Solo/BlackOut indicator blocks. Per-fader blocks spaced 6 bytes
-    apart starting at byte 2 (only the R byte of each half is meaningful:
-    `2+6*(N-1)` / `5+6*(N-1)` for fader N, confirmed for N=1/2/24) are each
-    fader's Bump-LED "catch" indicator -- fixed at (0x46, 0x0a) while that
-    fader's Bump LED is blinking (unlatched after a fader-mode switch), else
-    tracks its live output 1:1.
+    6-byte Solo/BlackOut indicator blocks. Bytes `1+6*(N-1)` onward hold
+    fader N's Bump LED as two RGB triples (the two blink phases) -- green in
+    INT/PARAM modes, red in MEMS; see decode_0x16_bump_catch.
   - type=0x17 (7 bytes): the fader-mode selector, all six modes (INT A/INT
     B/INT DEV/PARAM 1/PARAM 2/MEMS) -- only fires unprompted on a mode
     CHANGE, but request_type() gets the true current mode on demand
@@ -86,8 +83,8 @@ IO_TIMEOUT_MS = 200
 #       already gives an exact, plain-text readout of whatever a wheel is adjusting.
 #       EXCEPTIONS: bytes 517-528 are decoded (decode_0x16_indicators) -- two adjacent 6-byte
 #       Solo/BlackOut indicator blocks (Solo also has a confirmed distinct "blinking" pattern,
-#       not yet wired into decode_0x16_indicators). Each fader's 2-byte Bump-LED blink/catch
-#       indicator (decode_0x16_bump_catch) lives at `2+6*(N-1)` / `5+6*(N-1)`.
+#       not yet wired into decode_0x16_indicators). Each fader's 6-byte Bump-LED block (two RGB
+#       triples, decode_0x16_bump_catch) lives at `1+6*(N-1)`.
 KNOWN_UNDECODED_TYPES = {0x00, 0x0d, 0x10}
 
 
@@ -116,8 +113,15 @@ def pack_header(msg_type, payload_len, state=(0, 0, 0, 0)):
 def decode_announce(data):
     """type=0x28 payload: [0x00][count][type,0,0,0,0]*count -- returns list of announced types and selectors.
 
-    Catalog announcements use the four bytes after the type as an item selector; for type
-    0x09 this is the name-table page number.
+    Catalog announcements use the four bytes after the type as an item selector, echoed back
+    as state[1]/state[2] of the ack header. For type 0x09 the first field is the name-table
+    page number; for type 0x00 (MEMS memory names) it's (page, slot), both 0-indexed.
+
+    The two fields have DIFFERENT byte orders on the wire: the first is big-endian, the
+    second little-endian. Confirmed for the second field by 0x00's page-3/slot-5 memory,
+    announced as `02 04 00` after the page's high byte, and acked by real SmartSoft as
+    state[2]=4 (trace_fresh_start.pcapng acks slots 1-23 the same way) -- reading it
+    big-endian gave 1024, so the console answered every slot with slot 0's record.
     """
     if len(data) < 2:
         return []
@@ -126,9 +130,8 @@ def decode_announce(data):
     for i in range(count):
         off = 2 + 5 * i
         if off + 5 <= len(data):
-            # The catalog entry selector is encoded big-endian inside the announce payload,
-            # even though the surrounding USB protocol headers use little-endian fields.
-            selector = struct.unpack_from(">HH", data, off + 1)
+            selector = (struct.unpack_from(">H", data, off + 1)[0],
+                        struct.unpack_from("<H", data, off + 3)[0])
             entries.append((data[off], selector))
     return entries
 
@@ -315,11 +318,9 @@ def decode_0x00_memory_name(data):
     decode_0x17_mems_page) -- confirmed as a genuine two-field split, not a single combined
     index.
 
-    Real limitation, not a decode bug: this connect-time catalog is NOT a full per-slot
-    enumeration of every page's memories -- it sends at most one representative entry per
-    visited page (whichever slot happens to be selected/highlighted). Callers should expect
-    this to only ever populate a subset of slots, never assume a miss means "no memory
-    recorded there".
+    The connect-time catalog announces one type=0x00 entry per recorded memory, with (page,
+    slot) as the announce selector (see decode_announce), and the reply carries that same
+    page/slot here. A slot never announced has no memory recorded.
 
     The name sits in the LAST 38 bytes of the message, tail-anchored regardless of overall
     message length (not a fixed absolute offset -- the body before it is presumably that
@@ -413,42 +414,33 @@ def decode_0x16_indicators(data):
 
 
 def decode_0x16_bump_catch(data, fader):
-    """type=0x16, per-fader Bump LED for a fader that's "unlatched" after a fader-mode switch
-    -- i.e. its saved logical value doesn't match the physical fader position, so moving it has
-    no effect on output until the physical position catches up. `fader` is 1-indexed (1-24,
-    same convention as decode_0x0e's `Fader{N}`).
+    """type=0x16, per-fader Bump LED. `fader` is 1-indexed (1-24, same convention as
+    decode_0x0e's `Fader{N}`).
 
-    Reads only the R byte of each of the block's two halves -- `data[2+6*(fader-1)]` and
-    `data[5+6*(fader-1)]` -- deliberately, NOT the full 3-byte RGB half each offset starts.
-    This block is brightness only, not a color: there is no confirmed evidence it's genuine
-    RGB the way Solo/BlackOut's blocks are, and reading it as a full 6-byte RGB half corrupts
-    fader 24 by reading into an adjacent, unrelated LED region.
+    Each fader has a 6-byte block at `1+6*(N-1)`: two RGB triples, the LED's two blink
+    phases -- the same shape as Solo/BlackOut's blocks (decode_0x16_indicators). The color
+    comes from the console itself: green `(0, v, 0)` in INT A/B/DEV and PARAM 1/2, red
+    `(v, 0, 0)` in MEMS.
 
-      - While unlatched (Bump LED visibly dim-blinking): both R bytes sit at a fixed, unequal
-        pair, `(0x46, 0x0a)` -- two dim reds -- regardless of fader or how long it's wiggled,
-        sent once as a pair when blinking starts (the alternation is handled locally, not
-        re-sent per flash).
-      - The instant the fader is physically caught, both R bytes start tracking the fader's own
-        live combined output 1:1.
-      - At rest, both R bytes equal the fader's steady value -- indistinguishable on the wire
-        from "just caught," since both just mean "LED solid, showing this value."
+      - At rest / caught: both triples equal, level tracking the fader's live combined
+        output 1:1 (INT/PARAM). In MEMS: 0xff while the memory is up, 0x46 for a recorded
+        memory at rest, 0x0a for an empty slot.
+      - Unlatched after a fader-mode switch (physical position hasn't caught its stored
+        value): the triples differ, e.g. green 0x46 / 0x0a -- sent once when blinking
+        starts; the alternation is local to the console, not re-sent per flash.
 
-    "Blinking" is decoded generically as "the two R bytes don't match", confirmed across faders
-    1/2/24. The LED's hue (green, or red in MEMS) isn't sent on the wire at all; callers should
-    derive display color from the currently known `fader_mode` (type=0x17) and use this
-    function's value purely as brightness.
+    "Blinking" is decoded generically as "the two triples differ".
 
-    Returns None if data is too short, else {"blinking": True, "value_a": 0-255,
-    "value_b": 0-255} while unlatched, or {"blinking": False, "value": 0-255} once
-    latched/at rest.
+    Returns None if data is too short, else {"blinking": True, "color_a": [r, g, b],
+    "color_b": [r, g, b]} or {"blinking": False, "color": [r, g, b]}.
     """
-    off = 2 + 6 * (fader - 1)
-    if len(data) < off + 4:
+    off = 1 + 6 * (fader - 1)
+    if len(data) < off + 6:
         return None
-    a, b = data[off], data[off + 3]
+    a, b = list(data[off:off + 3]), list(data[off + 3:off + 6])
     if a != b:
-        return {"blinking": True, "value_a": a, "value_b": b}
-    return {"blinking": False, "value": a}
+        return {"blinking": True, "color_a": a, "color_b": b}
+    return {"blinking": False, "color": a}
 
 
 class ConsoleLink:

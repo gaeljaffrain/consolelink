@@ -14,6 +14,7 @@
   --master: #5647f4;
   --bumps: #808080;
   --accent-green: #d3f8b5;
+  --accent-red: #ff5c5c;
   --whitebutton: #ffffff;
   --blink-duration: 0.5s;
 }
@@ -237,7 +238,10 @@ h1 {
   height: 0%;
   transition: height 80ms linear;
 }
-.meter.nonzero .fill { background: #d3f8b5; }
+.meter.nonzero .fill { background: var(--accent-green); }
+/* The console shows MEMS in red (its bump LEDs too), so the FADERS row follows while in MEMS. */
+#section-physical.mems .meter.nonzero .fill { background: var(--accent-red); }
+#section-physical.mems .meter .val { color: var(--accent-red); }
 .meter .val {
   font-size: 10px;
   color: var(--accent-green);
@@ -494,8 +498,8 @@ h1 {
 }
 /* The Physical Faders row's light swatch: no text, just a color (solid,
    intensity-proportional once caught; blinking between two brightness levels while the
-   physical fader hasn't caught its stored value yet). The wire only sends brightness --
-   green/red hue is picked in JS from the active fader mode (see faderColor() in app.js).
+   physical fader hasn't caught its stored value yet). Colors come straight from the console's
+   RGB triples (see setPhysicalFader() in app.js).
    Sized to sit in a .meter's .name slot, same 24-per-row grid as the intensity rows above. */
 .fader-light {
   width: 100%;
