@@ -62,6 +62,12 @@ h1 {
   color: var(--dim);
 }
 .sat-control input { width: 110px; }
+.int-ab-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dim);
+}
 .status {
   display: flex;
   align-items: center;
@@ -144,6 +150,9 @@ h1 {
   align-items: center;
   gap: 14px;
 }
+/* INT A/B rows when the header's INT A/B checkbox is off. Same specificity as the rule above,
+   which the plain `hidden` attribute wouldn't beat. */
+.section.section-row.hidden-row { display: none; }
 .section.section-row .section-title {
   flex: 0 0 46px;
   flex-direction: column;

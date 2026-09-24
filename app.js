@@ -441,6 +441,22 @@ saturationInput.addEventListener("input", () => {
   if (lastState) render(lastState);
 });
 
+// Header "INT A/B" checkbox: INT DEV may be all that is needed, so the two 24-wide INT A/B rows
+// can be hidden. Display only -- they keep rendering while hidden.
+const SHOW_INT_AB_KEY = "consolelink.showIntAB";
+const showIntAbInput = document.getElementById("show-int-ab");
+function applyShowIntAb() {
+  ["INT A", "INT B"].forEach(mode => document.getElementById("section-" + mode)
+    .classList.toggle("hidden-row", !showIntAbInput.checked));
+}
+try { showIntAbInput.checked = localStorage.getItem(SHOW_INT_AB_KEY) !== "0"; }
+catch (e) { showIntAbInput.checked = true; }
+applyShowIntAb();
+showIntAbInput.addEventListener("change", () => {
+  try { localStorage.setItem(SHOW_INT_AB_KEY, showIntAbInput.checked ? "1" : "0"); } catch (e) { /* not persisted */ }
+  applyShowIntAb();
+});
+
 // Pushed via Server-Sent Events rather than polled: every state change the server
 // decodes is sent immediately, so no update is silently skipped between polls.
 function connect() {
