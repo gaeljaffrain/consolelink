@@ -12,6 +12,16 @@ traffic with Wireshark. Each capture isolated a single step (initial
 connection, moving one fader, pressing one button, etc.) so the resulting
 traces could be matched to a specific action.
 
+## Screenshots
+
+The web app (`server.py`) in a desktop browser:
+
+![consolelink web app on a desktop browser: Master, Bumps, Independents, Crossfader and both LCDs on top, then the INT A, INT B and INT DEV intensity rows and the 24 physical faders](screenshots/desktop.png)
+
+And on a phone, where each row wraps to 6 columns:
+
+<img src="screenshots/mobile.png" width="300" alt="consolelink web app on a phone: the same controls with rows wrapped to 6 columns">
+
 ## Contents
 
 | File | What it is |
@@ -70,6 +80,15 @@ python3 server.py [--debug] [--capture PATH]
 
 Then open http://localhost:8765. The page updates live as controls move; it
 also auto-reconnects if the console is unplugged and replugged.
+
+The server listens on all network interfaces, so a phone or another computer on
+the same network can open it too, at `http://<IP>:8765`. To get the IP of the
+machine running `server.py`:
+
+```
+ipconfig getifaddr en0   # macOS (en0 is usually Wi-Fi; try en1 for Ethernet)
+hostname -I              # Linux
+```
 
 **Command-line options:**
 
