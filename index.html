@@ -11,14 +11,18 @@
   <div class="subtitle">Console live view over USB.</div>
 
   <div class="status-row">
-    <div class="status"><span class="dot" id="dot"></span><span id="conn-text">connecting…</span></div>
-    <div id="stale-text" style="color: var(--dim);"></div>
-    <label class="sat-control">Colors:
-      <span>Soft</span>
-      <input type="range" id="saturation" min="0.5" max="1" step="0.05">
-      <span>Native</span>
-    </label>
-    <label class="int-ab-control"><input type="checkbox" id="show-int-ab"> INT A/B</label>
+    <div class="status-group">
+      <div class="status"><span class="dot" id="dot"></span><span id="conn-text">connecting…</span></div>
+      <div id="stale-text"></div>
+    </div>
+    <div class="controls">
+      <label class="sat-control">Colors:
+        <span>Soft</span>
+        <input type="range" id="saturation" min="0.5" max="1" step="0.05">
+        <span>Native</span>
+      </label>
+      <label class="int-ab-control"><input type="checkbox" id="show-int-ab"> INT A/B</label>
+    </div>
   </div>
 
   <div class="section section-row" id="section-master-bumps">

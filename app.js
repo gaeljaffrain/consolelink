@@ -67,14 +67,14 @@ function buildPhysicalFaderMeters() {
 }
 buildPhysicalFaderMeters();
 
-// Must match the 1600px breakpoint in style.css exactly, so meter/group-bar placement always
-// agrees with whichever layout the CSS actually applied.
+// Read from style.css's --cols, which its media queries set per window width -- the breakpoints
+// live only there, so meter/group-bar placement always agrees with the layout the CSS applied.
 function currentColumnsPerRow() {
-  return window.matchMedia("(max-width: 1600px)").matches ? 12 : 24;
+  return parseInt(getComputedStyle(document.documentElement).getPropertyValue("--cols"), 10) || 24;
 }
 
-// Explicit grid placement, not CSS auto-placement: once a row wraps to two 12-column blocks
-// AND has group-bar captions, auto-placement packs wrapped items with no gap between them,
+// Explicit grid placement, not CSS auto-placement: once a row wraps into several blocks AND
+// has group-bar captions, auto-placement packs wrapped items with no gap between them,
 // leaving no row free for the first block's captions. Odd rows (1, 3, ...) hold each wrapped
 // block's meters; the even row right after holds that block's captions (see
 // projectGroupSegments) and stays empty when nothing is grouped.
@@ -161,9 +161,10 @@ function computeLabelGroups(labels) {
 }
 
 // Projects an absolute 1-24 group range onto whichever layout is active. At 24-per-row there's
-// one meter row, with captions in row 2. Once wrapped to 12-per-row, both halves occupy rows 1
-// and 2, so each half needs its own caption row (3 and 4) -- a group straddling the 12/13
-// boundary is split into two segments, each renumbered to its own row's 1-12 column space.
+// one meter row, with captions in row 2. Once wrapped (e.g. 12-per-row), each block of meters
+// gets its own caption row right below it (rows 1/2, 3/4, ...) -- a group straddling a block
+// boundary (e.g. 12/13) is split into one segment per block, each renumbered to its own
+// block's 1..columnsPerRow column space.
 function projectGroupSegments(g, columnsPerRow) {
   const segments = [];
   for (let rowStart = 1; rowStart <= 24; rowStart += columnsPerRow) {
@@ -202,23 +203,26 @@ const PARAM_GROUPS = { "PARAM 1": computeLabelGroups(PARAM_1_LABELS), "PARAM 2":
 let lastFaderGroupMode = null;
 
 // Redraws for whichever mode last rendered, using whatever layout is active right now. Called
-// from render() on a mode change, and from relayoutAllRows() since a plain resize can cross the
-// 1600px breakpoint with no mode change involved.
+// from render() on a mode change, and from relayoutAllRows() since a plain resize can change
+// the column count with no mode change involved.
 function updateFaderGroupBars() {
   renderGroupBars(document.getElementById("physical-faders"),
     PARAM_GROUPS[lastFaderGroupMode] || [], currentColumnsPerRow());
 }
 
-// layoutMeterGrid's grid-column/row values are static once set, so any resize crossing the
-// 1600px breakpoint needs meters and group-bars redone together, not just at page load.
+// layoutMeterGrid's grid-column/row values are static once set, so any resize that changes
+// --cols needs meters and group-bars redone together, not just at page load.
 const ALL_INTENSITY_ROW_IDS = ["intensities-INT A", "intensities-INT B", "intensities-INT DEV", "physical-faders"];
+let laidOutColumns = null;
 function relayoutAllRows() {
   const columnsPerRow = currentColumnsPerRow();
+  if (columnsPerRow === laidOutColumns) return;
+  laidOutColumns = columnsPerRow;
   for (const id of ALL_INTENSITY_ROW_IDS) layoutMeterGrid(document.getElementById(id), columnsPerRow);
   updateFaderGroupBars();
 }
 relayoutAllRows();
-window.matchMedia("(max-width: 1600px)").addEventListener("change", relayoutAllRows);
+window.addEventListener("resize", relayoutAllRows);
 
 // A grouped fader ("Focus"/"Pan") already shows its group name once, in the group-bar below --
 // showing only the distinguishing 2nd word here avoids repeating it per fader. Solo entries
@@ -456,15 +460,20 @@ saturationInput.addEventListener("input", () => {
 });
 
 // Header "INT A/B" checkbox: INT DEV may be all that is needed, so the two 24-wide INT A/B rows
-// can be hidden. Display only -- they keep rendering while hidden.
+// can be hidden. Display only -- they keep rendering while hidden. With no saved choice yet,
+// they start hidden on a phone in portrait (6 columns), where each one is 4 meter rows tall.
 const SHOW_INT_AB_KEY = "consolelink.showIntAB";
 const showIntAbInput = document.getElementById("show-int-ab");
 function applyShowIntAb() {
   ["INT A", "INT B"].forEach(mode => document.getElementById("section-" + mode)
     .classList.toggle("hidden-row", !showIntAbInput.checked));
 }
-try { showIntAbInput.checked = localStorage.getItem(SHOW_INT_AB_KEY) !== "0"; }
-catch (e) { showIntAbInput.checked = true; }
+const defaultShowIntAb = currentColumnsPerRow() > 6;
+try {
+  const stored = localStorage.getItem(SHOW_INT_AB_KEY);
+  showIntAbInput.checked = stored === null ? defaultShowIntAb : stored !== "0";
+}
+catch (e) { showIntAbInput.checked = defaultShowIntAb; }
 applyShowIntAb();
 showIntAbInput.addEventListener("change", () => {
   try { localStorage.setItem(SHOW_INT_AB_KEY, showIntAbInput.checked ? "1" : "0"); } catch (e) { /* not persisted */ }
