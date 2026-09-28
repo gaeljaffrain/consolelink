@@ -65,6 +65,7 @@ INTENSITY_MODES = ("INT A", "INT B", "INT DEV")  # sub-modes with a decoded inte
 ALL_FADER_MODES = INTENSITY_MODES + ("PARAM 1", "PARAM 2", "MEMS")  # every mode the physical fader-mode selector (type=0x17) can report
 
 state = {
+    "version": sfl.VERSION,
     "connected": False,
     "fader_mode": None,  # None = unknown -- never actually seen a type=0x17; not a guess like "INT A"
     "fader_mode_confirmed": False,  # False = fader_mode is still unknown/unconfirmed
@@ -561,6 +562,7 @@ def main():
     poll_thread.start()
 
     server = QuietThreadingHTTPServer((HOST, PORT), Handler)
+    print(f"ConsoleLink v{sfl.VERSION}")
     print(f"Serving on http://{HOST}:{PORT} -- Ctrl+C to stop.")
     try:
         server.serve_forever()

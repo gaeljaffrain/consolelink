@@ -68,6 +68,8 @@ import sys
 import usb.core
 import usb.util
 
+VERSION = "0.1.0"  # ConsoleLink release version (SemVer); bump together with the git tag
+
 VENDOR_ID = 0x14D5
 PRODUCT_ID = 0x0201
 
