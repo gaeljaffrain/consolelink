@@ -472,6 +472,8 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_file("style.css", "text/css")
         elif self.path == "/app.js":
             self._serve_file("app.js", "text/javascript")
+        elif self.path == "/favicon.svg":
+            self._serve_file("favicon.svg", "image/svg+xml")
         elif self.path == "/api/state":
             # One-shot snapshot, used only for the initial page load before the
             # SSE stream below takes over. Not used for the live updates.
