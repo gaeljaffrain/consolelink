@@ -67,10 +67,11 @@ works out of the box for a user-space process).
 **Terminal live printer:**
 
 ```
-python3 listen.py [--capture PATH]
+python3 listen.py [--capture PATH] [--dmx]
 ```
 
-Prints each control's name and value the moment it changes. Ctrl+C to stop.
+Prints each control's name and value the moment it changes. Ctrl+C to stop. DMX output
+levels are not printed unless you pass `--dmx`.
 
 **Web app:**
 
@@ -95,7 +96,8 @@ hostname -I              # Linux
 | Flag | Tool(s) | Effect |
 |---|---|---|
 | `--debug` | `server.py` | Per-control change logging to stderr, plus a liveness heartbeat and handshake diagnostics. |
-| `--capture PATH` | both | Append every message (decoded or not) as a timestamped hex line to `PATH`, for comparing against a packet capture when something behaves unexpectedly. |
+| `--capture PATH` | both | Append every message (decoded or not) as a timestamped hex line to `PATH`, for comparing against a packet capture when something behaves unexpectedly. DMX output messages are logged too, whether or not `--dmx` is set. |
+| `--dmx` | `listen.py` | Also print DMX output changes (one line per address that changes, e.g. `DMX U1.511 = 255`). Off by default because it is very chatty. |
 
 Run either tool with `--help` for the full option list.
 

@@ -29,8 +29,13 @@ def main():
     parser.add_argument("--capture", metavar="PATH", default="",
                          help="Append every message (decoded or not) as a timestamped hex "
                               "line to PATH, for finding not-yet-decoded controls.")
+    parser.add_argument("--dmx", action="store_true",
+                         help="Also print DMX output changes (type=0x0d, one line per address "
+                              "that changes). Off by default -- it is very chatty. --capture "
+                              "logs the messages either way.")
     args = parser.parse_args()
     capture_path = args.capture
+    print_dmx = args.dmx
 
     dev = usb.core.find(idVendor=sfl.VENDOR_ID, idProduct=sfl.PRODUCT_ID)
     if dev is None:
@@ -128,6 +133,15 @@ def main():
                     for i, v in enumerate(intensities):
                         if v:
                             show(f"{mode_name}.Intensity{i + 1}", v)
+        elif obj_type == 0x0d:
+            universes = sfl.decode_0x0d_dmx(data) if print_dmx else None
+            if universes is not None:
+                for u, levels in enumerate(universes, 1):
+                    for i, v in enumerate(levels):
+                        if v:
+                            show(f"DMX U{u}.{i + 1}", v)
+                        elif known.get(f"DMX U{u}.{i + 1}"):
+                            show(f"DMX U{u}.{i + 1}", 0)
         elif obj_type == 0x28:
             pass  # announces are handled inline in the main loop, nothing to show here
         elif obj_type in sfl.KNOWN_UNDECODED_TYPES:

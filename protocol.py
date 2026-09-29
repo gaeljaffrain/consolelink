@@ -38,6 +38,9 @@ Decodes:
     only ever reports whichever fader mode is physically active), this holds
     all three intensity sub-mode banks (INT A/INT B/INT DEV) at once --
     `[header:1][INT A: 24][INT B: 24][INT DEV: 24]`.
+  - type=0x0d (1026 bytes): the console's DMX output, both universes -- a 2-byte
+    big-endian channel count (1024) then one level byte per channel. Pushed on
+    every change to the output (never a timed stream); see decode_0x0d_dmx.
   - type=0x11 (209 bytes): Crossfader Live, Crossfader Next -- the two scene
     levels, not lever positions: once a crossfade completes the console
     resets them to Live=255, Next=0 wherever the levers physically are.
@@ -80,12 +83,10 @@ IO_TIMEOUT_MS = 200
 # not yet decoded -- not fader/crossfader data, safe to ignore for fader testing.
 # 0x00: constant ~195-byte payload, unrelated to any specific control (seen live, not yet in
 #       any pcap capture) -- possibly a periodic status/heartbeat block.
-# 0x0d: correlated sibling of 0x0e, ~1026 bytes -- still not decoded (0x0f, its other sibling,
-#       IS decoded: it's the same per-slot intensity data as 0x0d but for all three intensity
-#       sub-modes at once, see decode_0x0f_all_modes -- 0x0d is presumably a
-#       similarly richer/differently-scaled version, not yet worked out).
-# 0x10: ~1026 bytes, same data[0]=0x04 header convention as 0x0d -- likely a sibling of 0x11
-#       (crossfaders) the same way 0x0d is a sibling of 0x0e. Seen live, not yet in a pcap capture.
+# 0x10: 1026 bytes, same 2-byte big-endian channel-count header (0x0400 = 1024) as type=0x0d,
+#       but the 1024 entries are small flag-like values (0, 1, 3, 5, 0x0f), not levels. Not
+#       streamed and not tied to output changes -- seen only alongside selection/mode changes.
+#       Probably per-channel status; not decoded. (type=0x0d, the DMX output, is decoded.)
 # 0x16: ~637-642 byte full-table dump, correlated with wheel moves and occasional full
 #       refreshes; likely a live RGB-ish color-preview value, mostly not decoded -- type=0x15
 #       already gives an exact, plain-text readout of whatever a wheel is adjusting.
@@ -93,7 +94,7 @@ IO_TIMEOUT_MS = 200
 #       Solo/BlackOut indicator blocks (Solo also has a confirmed distinct "blinking" pattern,
 #       not yet wired into decode_0x16_indicators). Each fader's 6-byte Bump-LED block (two RGB
 #       triples, decode_0x16_bump_catch) lives at `1+6*(N-1)`.
-KNOWN_UNDECODED_TYPES = {0x00, 0x0d, 0x10}
+KNOWN_UNDECODED_TYPES = {0x00, 0x10}
 
 
 def find_bulk_interface(dev):
@@ -343,6 +344,28 @@ def decode_0x0f_all_modes(data):
         return None
     order = ("INT A", "INT B", "INT DEV")
     return {order[m]: [data[1 + m * 24 + n] for n in range(24)] for m in range(3)}
+
+
+DMX_UNIVERSE_SIZE = 512
+
+def decode_0x0d_dmx(data):
+    """type=0x0d (1026 bytes): the DMX output levels, both universes, as a full snapshot.
+
+    Layout: `[channel count:2, big-endian][one level byte per channel]`. The console always
+    reports 1024 channels (2 universes x 512); DMX address N (1-512) of universe 1 is
+    `data[1 + N]`, and universe 2 follows at `data[514:]`. Sent whenever a patched output
+    changes, and every message holds every channel, so a stateful client replaces its whole
+    picture each time.
+    Returns (universe_1, universe_2), each a list of 512 levels (index 0 = address 1), or None
+    if the payload isn't a well-formed 1024-channel message.
+    """
+    if len(data) < 2:
+        return None
+    count = int.from_bytes(data[:2], "big")
+    if count != 2 * DMX_UNIVERSE_SIZE or len(data) != 2 + count:
+        return None
+    body = data[2:]
+    return list(body[:DMX_UNIVERSE_SIZE]), list(body[DMX_UNIVERSE_SIZE:])
 
 
 def decode_0x00_memory_name(data):
