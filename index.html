@@ -8,7 +8,7 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 </head>
 <body>
-  <h1>ConsoleLink for SmartFadeML — Playback</h1>
+  <h1>ConsoleLink for SmartFadeML</h1>
   <div class="subtitle">Console live view over USB.<span id="version"></span></div>
 
   <div class="status-row">
@@ -26,6 +26,12 @@
     </div>
   </div>
 
+  <div class="tab-bar" role="tablist">
+    <button class="tab" id="tab-btn-playback" role="tab" aria-selected="true" aria-controls="tab-playback">Playback</button>
+    <button class="tab" id="tab-btn-dmx" role="tab" aria-selected="false" aria-controls="tab-dmx">DMX Outputs</button>
+  </div>
+
+  <div id="tab-playback" role="tabpanel">
   <div class="section section-row" id="section-master-bumps">
     <div class="section-title">MAIN</div>
     <div class="special-row">
@@ -134,6 +140,19 @@
       <div class="mode-pill" id="mode-pill">—</div>
     </div>
     <div class="intensity-row" id="physical-faders"></div>
+  </div>
+  </div>
+
+  <div id="tab-dmx" role="tabpanel" hidden>
+    <div class="dmx-note" id="dmx-note">waiting for DMX data…</div>
+    <div class="section" id="dmx-universe-1">
+      <div class="section-title">Universe 1</div>
+      <div class="dmx-grid"></div>
+    </div>
+    <div class="section" id="dmx-universe-2">
+      <div class="section-title">Universe 2</div>
+      <div class="dmx-grid"></div>
+    </div>
   </div>
 
 <script src="app.js"></script>

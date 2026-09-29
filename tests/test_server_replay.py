@@ -48,3 +48,33 @@ def test_lcd_text_reaches_state(server, capture):
     assert server.state["lcd"] is None
     server.handle_payload(0x15, capture("lcd.log").tagged("mems_held").data)
     assert server.state["lcd"][2:] == ["Memory page:1       ", "Bump 1-12 to change "]
+
+
+def test_dmx_is_none_until_the_first_message(server):
+    assert server.state["dmx"] is None
+
+
+def test_dmx_reaches_state_as_two_universes(server, capture):
+    cap = capture("dmx.log")
+    server.handle_payload(0x0d, cap.tagged("ind1_on").data)
+    u1, u2 = server.state["dmx"]
+    assert len(u1) == len(u2) == 512
+    assert u1[510] == 255 and u1[511] == 0  # IND 1 on DMX 511, IND 2 (DMX 512) still off
+
+    server.handle_payload(0x0d, cap.tagged("ind1_off").data)
+    assert server.state["dmx"][0][510] == 0
+
+
+def test_dmx_is_replaced_by_each_snapshot_not_merged(server, capture):
+    cap = capture("dmx.log")
+    server.handle_payload(0x0d, cap.tagged("f1_0").data)
+    assert server.state["dmx"][0][0] == 100
+    server.handle_payload(0x0d, cap.tagged("f1_5").data)
+    assert server.state["dmx"][0][0] == 0
+
+
+def test_malformed_dmx_leaves_state_untouched(server, capture):
+    server.handle_payload(0x0d, capture("dmx.log").tagged("connect").data)
+    before = server.state["dmx"]
+    server.handle_payload(0x0d, b"\x04\x00" + bytes(10))
+    assert server.state["dmx"] is before

@@ -33,7 +33,8 @@ Physical Faders row: 24 bar+light indicators, one per physical fader,
 mode-agnostic (type=0x0e for the live value, type=0x16 for the Bump LED --
 solid/color-proportional once caught, blinking while the physical fader
 hasn't yet caught its stored logical value after a mode switch). And the console's two
-LCDs, mirrored as text (type=0x15), and the Crossfader Live/Next levels (type=0x11).
+LCDs, mirrored as text (type=0x15), and the Crossfader Live/Next levels (type=0x11). And the
+console's DMX output, both universes (type=0x0d), for the "DMX Outputs" tab.
 
 The fader and intensity values are output levels, level x Crossfader Live x Master (both
 type=0x0e and the stored type=0x0f bank): a fader at full with Live and Master at 60% reads
@@ -96,6 +97,8 @@ state = {
     # LED colors, same shape as physical_fader_lights -- see decode_0x16_indicator_lights
     "lcd": None,  # None until the first type=0x15; then the console's 4 LCD lines,
     # [LCD 1 line 1, LCD 1 line 2, LCD 2 line 1, LCD 2 line 2] -- see decode_0x15
+    "dmx": None,  # None until the first type=0x0d; then [universe 1, universe 2], each a list of
+    # 512 raw 0-255 levels (index 0 = address 1) -- see decode_0x0d_dmx in protocol.py
     "last_update": 0.0,
 }
 state_lock = threading.Lock()
@@ -250,6 +253,17 @@ def handle_payload(obj_type, data):
                 print(f"[crossfader] t={time.time() - _t_start:7.3f}  live={live} next={next_}",
                       file=sys.stderr)
             update_state(crossfader_live=live, crossfader_next=next_)
+    # DMX output, both universes -- a full snapshot, resent whenever a patched output changes
+    elif obj_type == 0x0d:
+        universes = sfl.decode_0x0d_dmx(data)
+        if universes is not None:
+            if DEBUG:
+                old = state["dmx"] or [[0] * 512, [0] * 512]
+                changes = [f"U{u + 1}.{a + 1}={universes[u][a]}" for u in range(2) for a in range(512)
+                           if universes[u][a] != old[u][a]]
+                print(f"[dmx] t={time.time() - _t_start:7.3f}  {' '.join(changes) or 'no change'}",
+                      file=sys.stderr)
+            update_state(dmx=[universes[0], universes[1]])
     # The console's two LCDs, 2 x 20 chars each, resent whenever either display changes
     elif obj_type == 0x15:
         lines = sfl.decode_0x15(data)
@@ -340,8 +354,10 @@ def poll_forever(stop_event):
         elif DEBUG:
             print("[webapp] proactive 0x0f request got no reply", file=sys.stderr)
 
-        # Independents, Solo/BlackOut, the LCD text and the crossfaders are fetched directly.
-        for type_byte, label in ((0x0c, "0x0c"), (0x16, "0x16"), (0x15, "0x15"), (0x11, "0x11")):
+        # Independents, Solo/BlackOut, the LCD text, the crossfaders and the DMX output are
+        # fetched directly.
+        for type_byte, label in ((0x0c, "0x0c"), (0x16, "0x16"), (0x15, "0x15"), (0x11, "0x11"),
+                                 (0x0d, "0x0d")):
             obj_type, data = link.request_type(type_byte)
             if obj_type is not None:
                 log_capture("requested", obj_type, data)

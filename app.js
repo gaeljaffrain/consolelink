@@ -67,6 +67,62 @@ function buildPhysicalFaderMeters() {
 }
 buildPhysicalFaderMeters();
 
+// DMX Outputs tab: one cell per address, 512 per universe. The column count (32 / 16 / 8) is
+// --dmx-cols in style.css, so this file never needs to know where the grid wraps.
+const DMX_UNIVERSES = 2;
+const DMX_CHANNELS = 512;
+const dmxCells = [];  // dmxCells[universe][address - 1]
+const dmxShown = [];  // last level drawn per cell, so an update only touches cells that changed
+function buildDmxGrids() {
+  for (let u = 0; u < DMX_UNIVERSES; u++) {
+    const grid = document.querySelector("#dmx-universe-" + (u + 1) + " .dmx-grid");
+    dmxCells.push([]);
+    dmxShown.push(new Array(DMX_CHANNELS).fill(null));
+    for (let a = 1; a <= DMX_CHANNELS; a++) {
+      const cell = document.createElement("div");
+      cell.className = "dmx-cell";
+      cell.innerHTML = `<span class="addr">${a}</span><span class="lvl"></span>`;
+      grid.appendChild(cell);
+      dmxCells[u].push(cell);
+    }
+  }
+}
+buildDmxGrids();
+
+// dmx is state.dmx: null before the first type=0x0d, else [universe 1, universe 2] of raw levels.
+function renderDmx(dmx) {
+  document.getElementById("dmx-note").style.display = dmx ? "none" : "";
+  for (let u = 0; u < DMX_UNIVERSES; u++) {
+    for (let i = 0; i < DMX_CHANNELS; i++) {
+      const value = dmx ? dmx[u][i] : 0;
+      if (dmxShown[u][i] === value) continue;
+      dmxShown[u][i] = value;
+      const cell = dmxCells[u][i];
+      cell.querySelector(".lvl").textContent = value === 0 ? "" : pctLabel(value);
+      cell.style.setProperty("--lvl", String(value / 255));
+      cell.classList.toggle("nonzero", value > 0);
+      cell.classList.toggle("bright", value >= 128);  // dark text once the green is strong
+    }
+  }
+}
+
+// Tabs. The last one used is remembered; a hidden tab isn't rendered, it catches up when shown.
+const TAB_KEY = "consolelink.tab";
+const TABS = ["playback", "dmx"];
+let activeTab = "playback";
+function showTab(name) {
+  activeTab = name;
+  TABS.forEach(t => {
+    document.getElementById("tab-" + t).hidden = t !== name;
+    document.getElementById("tab-btn-" + t).setAttribute("aria-selected", String(t === name));
+  });
+  if (name === "dmx" && lastState) renderDmx(lastState.dmx);
+}
+TABS.forEach(t => document.getElementById("tab-btn-" + t).addEventListener("click", () => {
+  try { localStorage.setItem(TAB_KEY, t); } catch (e) { /* not persisted */ }
+  showTab(t);
+}));
+
 // Read from style.css's --cols, which its media queries set per window width -- the breakpoints
 // live only there, so meter/group-bar placement always agrees with the layout the CSS applied.
 function currentColumnsPerRow() {
@@ -446,6 +502,8 @@ function render(state) {
 
   setLcds(state.lcd);
 
+  if (activeTab === "dmx") renderDmx(state.dmx);
+
   lastUpdate = state.last_update;
 }
 
@@ -494,6 +552,11 @@ function connect() {
     // EventSource auto-retries the connection itself; nothing else to do here.
   };
 }
+try {
+  const storedTab = localStorage.getItem(TAB_KEY);
+  if (TABS.includes(storedTab)) showTab(storedTab);
+} catch (e) { /* stays on Playback */ }
+
 connect();
 
 setInterval(() => {
