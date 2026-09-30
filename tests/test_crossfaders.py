@@ -3,7 +3,7 @@ then Next alone, then both together."""
 import importlib
 
 import protocol as sfl
-import server as server_module
+import consolelink as server_module
 
 
 def levels(cap, tag):

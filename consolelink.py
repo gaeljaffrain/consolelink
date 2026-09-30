@@ -3,11 +3,21 @@
 Minimal local web app showing live console state: the 24 physical faders'
 current output, plus the console's per-mode intensity memory.
 
-Run:
-    python3 consolelink/server.py [--debug] [--capture PATH] [--artnet [DEST]]
+Run, from inside the consolelink/ folder:
+    python3 consolelink.py [--debug] [--capture PATH] [--no-web] [--artnet [DEST]]
 Then open http://localhost:8765 in a browser, or http://<this Mac's LAN IP>:8765 from
 another device on the same network (e.g. `ipconfig getifaddr en0` for the IP; macOS will
 prompt to allow incoming connections for python3 the first time a LAN client connects).
+
+Terminal only, no web server: add --no-web (with --debug, --capture and/or --artnet -- there is
+nothing else for it to do). --debug prints every control change to stderr, plus a line for any
+message type that has no decoder yet ("known, undecoded" or "UNEXPECTED", with the first bytes),
+for finding not-yet-decoded controls.
+
+--capture PATH appends every message (known or not) to PATH as a timestamped line with the full,
+untruncated hex, for reading back like a packet capture: run with --capture capture.log, press
+whatever is being investigated, Ctrl+C, then read the file. It is also the format the tests'
+fixtures are cut from.
 
 Stdlib only (plus pyusb, already required by protocol.py). No build step, no
 npm, no framework -- a background thread polls the console over USB and a
@@ -57,10 +67,8 @@ HOST = "0.0.0.0"  # listen on all interfaces, not just loopback, so LAN devices 
 PORT = 8765
 STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Same raw-capture mechanism as listen.py (see its module docstring) -- set via --capture PATH
-# to log every message (known or not) with full hex + a timestamp, for comparing byte-for-byte
-# against a CLI capture when something behaves differently here than in the terminal tool
-# despite sharing the same protocol code. Set from args in main().
+# Set from --capture PATH in main(): log every message (known or not) with full hex + a timestamp
+# (see the module docstring).
 CAPTURE_PATH = ""
 
 INTENSITY_MODES = ("INT A", "INT B", "INT DEV")  # sub-modes with a decoded intensity bank (type=0x0e/0x0f)
@@ -116,6 +124,7 @@ def update_state(**kwargs):
 # but decoded/rendered wrong" far faster than guessing. Set from args in main().
 DEBUG = False
 _last_logged_master = None
+_last_logged_selection = None
 _last_logged_intensities = {mode: [0] * 24 for mode in INTENSITY_MODES}
 _t_start = time.time()
 
@@ -123,7 +132,7 @@ _t_start = time.time()
 artnet_sender = None
 
 def handle_payload(obj_type, data):
-    global _last_logged_master
+    global _last_logged_master, _last_logged_selection
     # Faders (only for active fader mode), bumps and master snapshot
     if obj_type == 0x0e:
         full = sfl.decode_0x0e_full(data)
@@ -289,17 +298,37 @@ def handle_payload(obj_type, data):
                 state["labels"]["MEMS"].setdefault(page + 1, {})[slot + 1] = lines
                 state["last_update"] = time.time()
                 state_condition.notify_all()
+    # Device/Palette-Select selection: not shown in the web UI, only logged under --debug
+    elif obj_type == 0x18:
+        ids = sfl.decode_0x18(data)
+        if DEBUG and ids is not None and ids != _last_logged_selection:
+            print(f"[selection] t={time.time() - _t_start:7.3f}  ids={ids}", file=sys.stderr)
+            _last_logged_selection = ids
+    # Anything without a decoder: silent, except under --debug, where it is worth seeing
+    elif DEBUG:
+        if obj_type in sfl.KNOWN_UNDECODED_TYPES:
+            # Seen in captures but not decoded -- not fader data, not an error.
+            label = "known, undecoded"
+        else:
+            label = "UNEXPECTED -- new, not seen before; worth reporting back"
+        print(f"[unhandled] t={time.time() - _t_start:7.3f}  type=0x{obj_type:02x} len={len(data)} "
+              f"raw={data[:16].hex()}...  ({label})", file=sys.stderr)
 
 
 def poll_forever(stop_event):
     """Connect, poll until something goes wrong or the device disappears, then retry."""
+    waiting_reported = False
     while not stop_event.is_set():
         dev = usb.core.find(idVendor=sfl.VENDOR_ID, idProduct=sfl.PRODUCT_ID)
         found = sfl.find_bulk_interface(dev) if dev is not None else None
         if found is None:
             update_state(connected=False)
+            if not waiting_reported:
+                print("[consolelink] no console found, waiting...", file=sys.stderr)
+                waiting_reported = True
             time.sleep(2.0)
             continue
+        waiting_reported = False
 
         intf_num, alt, ep_in, ep_out = found
 
@@ -316,12 +345,12 @@ def poll_forever(stop_event):
 
         link = sfl.ConsoleLink(dev, ep_in, ep_out)
         update_state(connected=True)
-        print(f"[webapp] connected: {dev.manufacturer!r} {dev.product!r}")
+        print(f"[consolelink] connected: {dev.manufacturer!r} {dev.product!r}")
 
         capture_f = open(CAPTURE_PATH, "a") if CAPTURE_PATH else None
         capture_t0 = time.time()
         if capture_f:
-            print(f"[webapp] raw capture logging to {CAPTURE_PATH}", file=sys.stderr)
+            print(f"[consolelink] raw capture logging to {CAPTURE_PATH}", file=sys.stderr)
 
         def log_capture(kind, obj_type, data):
             if capture_f:
@@ -337,7 +366,7 @@ def poll_forever(stop_event):
             log_capture("requested", mode_type, mode_data)
             handle_payload(mode_type, mode_data)
         elif DEBUG:
-            print("[webapp] proactive 0x17 request got no reply", file=sys.stderr)
+            print("[consolelink] proactive 0x17 request got no reply", file=sys.stderr)
 
         # Ask for current fader/master/bumps state directly rather than relying on the
         # console's own unprompted announce, which loses a race against macOS's automatic USB
@@ -348,7 +377,7 @@ def poll_forever(stop_event):
             log_capture("requested", obj_type, data)
             handle_payload(obj_type, data)
         elif DEBUG:
-            print("[webapp] proactive 0x0e request got no reply", file=sys.stderr)
+            print("[consolelink] proactive 0x0e request got no reply", file=sys.stderr)
 
         # type=0x0f holds all three intensity banks at once, so INT B/INT DEV get real data on
         # connect too, not just whichever mode happens to be active (0x0e is mode-agnostic and
@@ -358,7 +387,7 @@ def poll_forever(stop_event):
             log_capture("requested", all_type, all_data)
             handle_payload(all_type, all_data)
         elif DEBUG:
-            print("[webapp] proactive 0x0f request got no reply", file=sys.stderr)
+            print("[consolelink] proactive 0x0f request got no reply", file=sys.stderr)
 
         # Independents, Solo/BlackOut, the LCD text, the crossfaders and the DMX output are
         # fetched directly.
@@ -369,7 +398,7 @@ def poll_forever(stop_event):
                 log_capture("requested", obj_type, data)
                 handle_payload(obj_type, data)
             elif DEBUG:
-                print(f"[webapp] proactive {label} request got no reply", file=sys.stderr)
+                print(f"[consolelink] proactive {label} request got no reply", file=sys.stderr)
 
         consecutive_write_fails = 0
         needs_reset = False
@@ -394,7 +423,7 @@ def poll_forever(stop_event):
                     # gone) usually mean a previous session left the bulk pipe stalled -- a
                     # plain re-claim doesn't clear that, but a USB port reset does, without
                     # needing a physical unplug/replug.
-                    print("[webapp] too many write failures, resetting device", file=sys.stderr)
+                    print("[consolelink] too many write failures, resetting device", file=sys.stderr)
                     needs_reset = True
                     break
                 time.sleep(0.05)
@@ -475,10 +504,10 @@ def poll_forever(stop_event):
         if needs_reset:
             try:
                 dev.reset()
-                print("[webapp] device reset; waiting for re-enumeration", file=sys.stderr)
+                print("[consolelink] device reset; waiting for re-enumeration", file=sys.stderr)
                 time.sleep(2.0)  # give the device time to fully come back before retrying
             except usb.core.USBError as e:
-                print(f"[webapp] reset failed: {e} -- may need a physical unplug/replug",
+                print(f"[consolelink] reset failed: {e} -- may need a physical unplug/replug",
                       file=sys.stderr)
         usb.util.dispose_resources(dev)
         time.sleep(1.0)
@@ -567,13 +596,20 @@ def main():
         description="Local web app showing live console state (physical faders + per-mode intensities).")
     parser.add_argument("--debug", action="store_true",
                          help="Per-control change logging to stderr, plus a liveness "
-                              "heartbeat and handshake diagnostics.")
+                              "heartbeat, handshake diagnostics, and a line for every message "
+                              "type without a decoder.")
     parser.add_argument("--capture", metavar="PATH", default="",
                          help="Append every message (decoded or not) as a timestamped hex "
                               "line to PATH, for comparing against a packet capture when "
                               "something behaves unexpectedly.")
+    parser.add_argument("--no-web", action="store_true",
+                         help="Don't start the web server; just poll the console (use with "
+                              "--debug, --capture and/or --artnet).")
     artnet.add_arguments(parser)
     args = parser.parse_args()
+    if args.no_web and not (args.debug or args.capture or args.artnet is not None):
+        parser.error("--no-web needs at least one of --debug, --capture, --artnet "
+                     "(otherwise there is nothing to do)")
     DEBUG = args.debug
     CAPTURE_PATH = args.capture
     artnet_sender = artnet.sender_from_args(args, parser)
@@ -585,16 +621,23 @@ def main():
     poll_thread = threading.Thread(target=poll_forever, args=(stop_event,))
     poll_thread.start()
 
-    server = QuietThreadingHTTPServer((HOST, PORT), Handler)
     print(f"ConsoleLink v{sfl.VERSION}")
-    print(f"Serving on http://{HOST}:{PORT} -- Ctrl+C to stop.")
+    server = None
     try:
-        server.serve_forever()
+        if args.no_web:
+            print("Polling the console, no web server -- Ctrl+C to stop.")
+            while poll_thread.is_alive():
+                poll_thread.join(timeout=0.5)  # a timeout keeps Ctrl+C responsive
+        else:
+            server = QuietThreadingHTTPServer((HOST, PORT), Handler)
+            print(f"Serving on http://{HOST}:{PORT} -- Ctrl+C to stop.")
+            server.serve_forever()
     except KeyboardInterrupt:
         print("\nStopping.")
     finally:
         stop_event.set()
-        server.shutdown()
+        if server is not None:
+            server.shutdown()
         poll_thread.join(timeout=5.0)
         if artnet_sender is not None:
             artnet_sender.stop()

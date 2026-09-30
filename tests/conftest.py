@@ -2,7 +2,7 @@
 tests/) and provides `capture(name)`, a loader for the recorded-traffic fixtures in
 tests/fixtures/.
 
-Fixture format -- the same line format `listen.py --capture` / `server.py --capture` write:
+Fixture format -- the same line format `consolelink.py --capture` writes:
 
     # free-text comments: what the console was doing
     # @tag: names the message on the next line

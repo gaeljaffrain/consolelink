@@ -4,7 +4,7 @@ import importlib
 
 import pytest
 
-import server as server_module
+import consolelink as server_module
 
 
 @pytest.fixture
@@ -78,3 +78,21 @@ def test_malformed_dmx_leaves_state_untouched(server, capture):
     before = server.state["dmx"]
     server.handle_payload(0x0d, b"\x04\x00" + bytes(10))
     assert server.state["dmx"] is before
+
+
+def test_undecoded_types_are_reported_under_debug(server, capsys):
+    server.DEBUG = True
+    server.handle_payload(0x10, bytes(range(20)))
+    server.handle_payload(0x7e, b"\x01\x02")
+    err = capsys.readouterr().err
+    assert "type=0x10" in err and "known, undecoded" in err
+    assert "type=0x7e" in err and "UNEXPECTED" in err
+
+
+def test_undecoded_types_are_silent_without_debug(server, capsys):
+    before = dict(server.state)
+    server.handle_payload(0x10, bytes(20))
+    server.handle_payload(0x7e, b"\x01")
+    captured = capsys.readouterr()
+    assert captured.out == captured.err == ""
+    assert server.state == before
