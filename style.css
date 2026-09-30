@@ -48,16 +48,26 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   padding: 20px 24px 40px;
 }
+/* Title left, version right on the same baseline; on a narrow screen the version wraps under
+   the title and stays right-aligned. */
+.title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 16px;
+  margin-bottom: 12px;
+}
 h1 {
   font-size: 18px;
   font-weight: 600;
-  margin: 0 0 4px;
+  margin: 0;
   letter-spacing: 0.02em;
 }
-.subtitle {
+.version {
   color: var(--dim);
   font-size: 12px;
-  margin-bottom: 18px;
+  margin-left: auto;
 }
 .status-row {
   display: flex;
@@ -578,6 +588,11 @@ h1 {
   color: var(--darktext);
   box-shadow: 0 0 10px var(--accent-green);
 }
+/* Shape cues, so on and blinking don't rely on colour alone: a solid ring when on, a dashed one
+   while blinking. currentColor is the text colour each state already picks for contrast with
+   its own background; the negative offset keeps the ring inside the box. */
+.ind-button.on .light       { outline: 2px solid currentColor;  outline-offset: -4px; }
+.ind-button.blinking .light { outline: 2px dashed currentColor; outline-offset: -4px; }
 /* The Physical Faders row's light swatch: no text, just a color (solid,
    intensity-proportional once caught; blinking between two brightness levels while the
    physical fader hasn't caught its stored value yet). Colors are the console's own RGB
@@ -620,7 +635,7 @@ h1 {
   :root { --gap: 4px; }
   body { padding: 12px 8px 24px; }
   h1 { font-size: 16px; }
-  .subtitle { margin-bottom: 12px; }
+  .title-row { margin-bottom: 12px; }
   .status-row { gap: 8px 14px; margin-bottom: 12px; }
   .section { padding: 6px 8px; }
   .section.section-row { gap: 8px; }

@@ -451,8 +451,10 @@ function render(state) {
   const dot = document.getElementById("dot");
   const connText = document.getElementById("conn-text");
   dot.classList.toggle("ok", state.connected);
-  connText.textContent = state.connected ? "connected" : "waiting for console…";
-  if (state.version) document.getElementById("version").textContent = ` · v${state.version}`;
+  connText.textContent = state.connected
+    ? (state.device ? `connected · ${state.device}` : "connected")
+    : "waiting for console…";
+  if (state.version) document.getElementById("version").textContent = `v${state.version}`;
 
   const pill = document.getElementById("mode-pill");
   // state.fader_mode is null until a real type=0x17 reply has been seen (e.g. before the

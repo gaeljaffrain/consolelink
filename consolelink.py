@@ -77,6 +77,7 @@ ALL_FADER_MODES = INTENSITY_MODES + ("PARAM 1", "PARAM 2", "MEMS")  # every mode
 state = {
     "version": sfl.VERSION,
     "connected": False,
+    "device": None,  # console model name (sfl.MODEL_NAMES) while connected, else None
     "fader_mode": None,  # None = unknown -- never actually seen a type=0x17; not a guess like "INT A"
     "fader_mode_confirmed": False,  # False = fader_mode is still unknown/unconfirmed
     "mems_page": None,  # 1-indexed MEMS memory page (1-4 seen so far), from type=0x17's
@@ -322,7 +323,7 @@ def poll_forever(stop_event):
         dev = usb.core.find(idVendor=sfl.VENDOR_ID, idProduct=sfl.PRODUCT_ID)
         found = sfl.find_bulk_interface(dev) if dev is not None else None
         if found is None:
-            update_state(connected=False)
+            update_state(connected=False, device=None)
             if not waiting_reported:
                 print("[consolelink] no console found, waiting...", file=sys.stderr)
                 waiting_reported = True
@@ -344,7 +345,7 @@ def poll_forever(stop_event):
         usb.util.claim_interface(dev, intf_num)
 
         link = sfl.ConsoleLink(dev, ep_in, ep_out)
-        update_state(connected=True)
+        update_state(connected=True, device=sfl.MODEL_NAMES.get(dev.idProduct))
         print(f"[consolelink] connected: {dev.manufacturer!r} {dev.product!r}")
 
         capture_f = open(CAPTURE_PATH, "a") if CAPTURE_PATH else None
@@ -494,7 +495,7 @@ def poll_forever(stop_event):
                 log_capture("payload", obj_type, data)
                 handle_payload(obj_type, data)
 
-        update_state(connected=False)
+        update_state(connected=False, device=None)
         if capture_f:
             capture_f.close()
         try:

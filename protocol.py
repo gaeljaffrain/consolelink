@@ -75,6 +75,7 @@ VERSION = "0.1.1"  # ConsoleLink release version (SemVer); bump together with th
 
 VENDOR_ID = 0x14D5
 PRODUCT_ID = 0x0201
+MODEL_NAMES = {PRODUCT_ID: "SmartFade ML"}  # USB product id -> console model, for the UI
 
 HEADER_LEN = 12
 IO_TIMEOUT_MS = 200
