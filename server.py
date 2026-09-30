@@ -4,7 +4,7 @@ Minimal local web app showing live console state: the 24 physical faders'
 current output, plus the console's per-mode intensity memory.
 
 Run:
-    python3 consolelink/server.py [--debug] [--capture PATH]
+    python3 consolelink/server.py [--debug] [--capture PATH] [--artnet [DEST]]
 Then open http://localhost:8765 in a browser, or http://<this Mac's LAN IP>:8765 from
 another device on the same network (e.g. `ipconfig getifaddr en0` for the IP; macOS will
 prompt to allow incoming connections for python3 the first time a LAN client connects).
@@ -48,6 +48,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import artnet
 import protocol as sfl
 import usb.core
 import usb.util
@@ -117,6 +118,9 @@ DEBUG = False
 _last_logged_master = None
 _last_logged_intensities = {mode: [0] * 24 for mode in INTENSITY_MODES}
 _t_start = time.time()
+
+# Set from --artnet in main(): an artnet.ArtNetSender fed with every DMX snapshot, or None.
+artnet_sender = None
 
 def handle_payload(obj_type, data):
     global _last_logged_master
@@ -264,6 +268,8 @@ def handle_payload(obj_type, data):
                 print(f"[dmx] t={time.time() - _t_start:7.3f}  {' '.join(changes) or 'no change'}",
                       file=sys.stderr)
             update_state(dmx=[universes[0], universes[1]])
+            if artnet_sender is not None:
+                artnet_sender.update(*universes)
     # The console's two LCDs, 2 x 20 chars each, resent whenever either display changes
     elif obj_type == 0x15:
         lines = sfl.decode_0x15(data)
@@ -556,7 +562,7 @@ class QuietThreadingHTTPServer(ThreadingHTTPServer):
 
 
 def main():
-    global DEBUG, CAPTURE_PATH
+    global DEBUG, CAPTURE_PATH, artnet_sender
     parser = argparse.ArgumentParser(
         description="Local web app showing live console state (physical faders + per-mode intensities).")
     parser.add_argument("--debug", action="store_true",
@@ -566,9 +572,11 @@ def main():
                          help="Append every message (decoded or not) as a timestamped hex "
                               "line to PATH, for comparing against a packet capture when "
                               "something behaves unexpectedly.")
+    artnet.add_arguments(parser)
     args = parser.parse_args()
     DEBUG = args.debug
     CAPTURE_PATH = args.capture
+    artnet_sender = artnet.sender_from_args(args, parser)
 
     stop_event = threading.Event()
     # Not a daemon thread: those are hard-killed at interpreter exit with no chance to run
@@ -588,6 +596,8 @@ def main():
         stop_event.set()
         server.shutdown()
         poll_thread.join(timeout=5.0)
+        if artnet_sender is not None:
+            artnet_sender.stop()
 
 
 if __name__ == "__main__":

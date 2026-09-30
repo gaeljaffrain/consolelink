@@ -29,6 +29,7 @@ And on a phone, where each row wraps to 6 columns:
 | [`protocol.py`](protocol.py) | Shared library: USB framing, the idle-poll/announce/ack handshake, and decoders for every known message type. Everything else imports this rather than re-deriving the protocol. |
 | [`listen.py`](listen.py) | Terminal tool — connects and prints every control change live until Ctrl+C. |
 | [`server.py`](server.py) | Local web app — polls the console in a background thread and serves [`index.html`](index.html) over Server-Sent Events, so a browser tab shows live values. |
+| [`artnet.py`](artnet.py) | Optional Art-Net output of the two DMX universes, used by both tools via `--artnet`. |
 | [`index.html`](index.html) | Static single-page UI for `server.py`: intensity meters (INT A / INT B / INT DEV), physical faders, most important buttons and indicators, like BlackOut and Master, and a mirror of the console's two LCDs, plus a "DMX Outputs" tab showing both DMX universes (1024 channels) at once. |
 | [`app.js`](app.js) | Front-end logic for `index.html`: builds the meter grid, connects to the SSE stream, and renders each incoming state update. |
 | [`environment.yml`](environment.yml) | Conda-forge environment spec (recommended -- see Requirements below). |
@@ -67,7 +68,7 @@ works out of the box for a user-space process).
 **Terminal live printer:**
 
 ```
-python3 listen.py [--capture PATH] [--dmx]
+python3 listen.py [--capture PATH] [--dmx] [--artnet [DEST]]
 ```
 
 Prints each control's name and value the moment it changes. Ctrl+C to stop. DMX output
@@ -76,7 +77,7 @@ levels are not printed unless you pass `--dmx`.
 **Web app:**
 
 ```
-python3 server.py [--debug] [--capture PATH]
+python3 server.py [--debug] [--capture PATH] [--artnet [DEST]]
 ```
 
 Then open http://localhost:8765. The page updates live as controls move; it
@@ -89,6 +90,7 @@ machine running `server.py`:
 ```
 ipconfig getifaddr en0   # macOS (en0 is usually Wi-Fi; try en1 for Ethernet)
 hostname -I              # Linux
+ipconfig                 # Windows (look for "IPv4 Address" under your Wi-Fi or Ethernet adapter)
 ```
 
 **Command-line options:**
@@ -99,7 +101,35 @@ hostname -I              # Linux
 | `--capture PATH` | both | Append every message (decoded or not) as a timestamped hex line to `PATH`, for comparing against a packet capture when something behaves unexpectedly. DMX output messages are logged too, whether or not `--dmx` is set. |
 | `--dmx` | `listen.py` | Also print DMX output changes (one line per address that changes, e.g. `DMX U1.511 = 255`). Off by default because it is very chatty. |
 
+| `--artnet [DEST]` | both | Send both DMX universes as Art-Net to `DEST` (an IP address, or `broadcast`). Bare `--artnet` sends to `127.0.0.1`. Off by default. |
+| `--artnet-universe N` | both | Art-Net universe for console universe 1; universe 2 goes to N+1. Default 0. |
+| `--artnet-rate HZ` | both | Maximum send rate when levels change. Default 40. |
+| `--artnet-keepalive SEC` | both | Re-send the last frame this often when nothing changes. Default 1. |
+
 Run either tool with `--help` for the full option list.
+
+### Art-Net output
+
+```
+python3 server.py --artnet                    # visualiser on this machine
+python3 server.py --artnet 192.168.1.50       # an Art-Net node or another computer
+python3 server.py --artnet broadcast          # whole local network
+```
+
+Console universe 1 and 2 are sent as Art-Net universes 0 and 1 (change with `--artnet-universe`).
+Art-Net counts from 0, so some software labels these "1" and "2" — if a visualiser shows nothing,
+try the neighbouring universe numbers. On the same machine, set the visualiser's Art-Net input to
+listen on UDP port 6454 (some let you pick the network interface: choose loopback or "all").
+
+If several programs on this machine listen on port 6454 (say a visualiser and an Art-Net monitor),
+a unicast destination reaches only one of them. Use `--artnet broadcast` to feed all of them.
+
+The console only reports DMX when a patched output changes, but Art-Net receivers expect a steady
+stream, so the last frame is re-sent every second (`--artnet-keepalive`) while nothing moves. If the
+console is unplugged, the last frame keeps being sent.
+
+Frames go console → USB → this program → UDP with no timing guarantee, so this is fine for
+visualisation and casual use, not for anything where a stall or a frozen frame would be a problem.
 
 ## How it works
 

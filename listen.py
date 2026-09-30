@@ -13,6 +13,7 @@ import time
 import usb.core
 import usb.util
 
+import artnet
 import protocol as sfl
 
 # Pass --capture PATH to also log every message (known or not) with FULL raw hex and a
@@ -33,9 +34,11 @@ def main():
                          help="Also print DMX output changes (type=0x0d, one line per address "
                               "that changes). Off by default -- it is very chatty. --capture "
                               "logs the messages either way.")
+    artnet.add_arguments(parser)
     args = parser.parse_args()
     capture_path = args.capture
     print_dmx = args.dmx
+    artnet_sender = artnet.sender_from_args(args, parser)
 
     dev = usb.core.find(idVendor=sfl.VENDOR_ID, idProduct=sfl.PRODUCT_ID)
     if dev is None:
@@ -134,8 +137,10 @@ def main():
                         if v:
                             show(f"{mode_name}.Intensity{i + 1}", v)
         elif obj_type == 0x0d:
-            universes = sfl.decode_0x0d_dmx(data) if print_dmx else None
-            if universes is not None:
+            universes = sfl.decode_0x0d_dmx(data) if print_dmx or artnet_sender else None
+            if universes is not None and artnet_sender:
+                artnet_sender.update(*universes)
+            if universes is not None and print_dmx:
                 for u, levels in enumerate(universes, 1):
                     for i, v in enumerate(levels):
                         if v:
@@ -246,6 +251,8 @@ def main():
     finally:
         usb.util.release_interface(dev, intf_num)
         usb.util.dispose_resources(dev)
+        if artnet_sender:
+            artnet_sender.stop()
         if capture_f:
             capture_f.close()
 
