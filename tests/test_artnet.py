@@ -8,8 +8,8 @@ import time
 
 import pytest
 
-import artnet
-import consolelink as server_module
+from consolelink import artnet
+from consolelink import app as server_module
 
 HEADER = b"Art-Net\x00" + b"\x00\x50" + b"\x00\x0e"  # ID, OpCode ArtDmx (0x5000 LE), ProtVer 14
 

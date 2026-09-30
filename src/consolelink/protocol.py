@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Shared low-level protocol library for talking to the console over USB, reverse-engineered from
-captured SmartSoft <-> console traffic. Used by consolelink.py (the web app and terminal logger),
+captured SmartSoft <-> console traffic. Used by app.py (the web app and terminal logger),
 which doesn't re-derive any of this, it just imports it.
 
 Opens the console over USB, claims the bulk vendor interface (interface 1), and speaks the
@@ -588,7 +588,7 @@ class ConsoleLink:
         (version query) then subtype=0x07 (full show-catalog request) right after connecting.
         subtype=0x07's reply is a single huge type=0x28 announce (191 entries) covering the
         static show catalog -- names, groups, cues, curves, current show/firmware info.
-        `consolelink.py` still uses subtype=0x07 to fetch the type=0x09 name-table pages -- the rest
+        `app.py` still uses subtype=0x07 to fetch the type=0x09 name-table pages -- the rest
         of the fast connect-time state (fader/master/bumps/mode/independents/solo/blackout)
         uses request_type() instead. The reply(ies) aren't read here -- the caller's normal
         poll loop picks them up like any other announce, since the announce/ack handling is

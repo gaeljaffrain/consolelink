@@ -1,5 +1,5 @@
 """The console's two LCDs (type=0x15): 4 lines of 20 chars, as shown on the console."""
-import protocol as sfl
+from consolelink import protocol as sfl
 
 
 def test_device_parameter_screen(capture):

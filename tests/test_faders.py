@@ -1,5 +1,5 @@
 """Live fader table (type=0x0e) and stored intensity banks (type=0x0f)."""
-import protocol as sfl
+from consolelink import protocol as sfl
 
 
 def test_live_faders_bumps_and_master(capture):

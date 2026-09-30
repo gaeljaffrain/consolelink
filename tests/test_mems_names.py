@@ -1,6 +1,6 @@
 """MEMS memory names: the connect-time type=0x00 catalog, and the type=0x28 announce selector
 that addresses each memory by (page, slot)."""
-import protocol as sfl
+from consolelink import protocol as sfl
 
 # Every recorded memory on the test console, as shown on its own display: (page, slot), both
 # 0-indexed as on the wire -> the name's 3 lines.

@@ -4,7 +4,7 @@ import importlib
 
 import pytest
 
-import consolelink as server_module
+from consolelink import app as server_module
 
 
 @pytest.fixture

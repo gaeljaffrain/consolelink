@@ -1,8 +1,8 @@
-"""Shared test setup: puts the repo root on sys.path (so `import protocol` works from
-tests/) and provides `capture(name)`, a loader for the recorded-traffic fixtures in
-tests/fixtures/.
+"""Shared test setup: provides `capture(name)`, a loader for the recorded-traffic fixtures in
+tests/fixtures/. (The `consolelink` package itself is found through `pythonpath = ["src"]` in
+pyproject.toml, or an installed copy.)
 
-Fixture format -- the same line format `consolelink.py --capture` writes:
+Fixture format -- the same line format `consolelink --capture` writes:
 
     # free-text comments: what the console was doing
     # @tag: names the message on the next line
@@ -10,14 +10,12 @@ Fixture format -- the same line format `consolelink.py --capture` writes:
 """
 import os
 import re
-import sys
 from dataclasses import dataclass
 
 import pytest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIXTURES = os.path.join(REPO, "tests", "fixtures")
-sys.path.insert(0, REPO)
 
 _LINE_RE = re.compile(r"t=\s*([\d.]+)\s+(\S+)\s+type=0x([0-9a-f]+) len=(\d+) raw=([0-9a-f]*)$")
 _TAG_RE = re.compile(r"#\s*@([\w-]+):")

@@ -2,8 +2,8 @@
 then Next alone, then both together."""
 import importlib
 
-import protocol as sfl
-import consolelink as server_module
+from consolelink import protocol as sfl
+from consolelink import app as server_module
 
 
 def levels(cap, tag):

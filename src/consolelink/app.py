@@ -1,10 +1,10 @@
-#!/usr/bin/env python3
 """
 Minimal local web app showing live console state: the 24 physical faders'
 current output, plus the console's per-mode intensity memory.
 
-Run, from inside the consolelink/ folder:
-    python3 consolelink.py [--debug] [--capture PATH] [--no-web] [--artnet [DEST]]
+Run:
+    consolelink [--debug] [--capture PATH] [--no-web] [--artnet [DEST]]
+(or `python -m consolelink ...`; `pip install -e .` from the repo creates the command).
 Then open http://localhost:8765 in a browser, or http://<this Mac's LAN IP>:8765 from
 another device on the same network (e.g. `ipconfig getifaddr en0` for the IP; macOS will
 prompt to allow incoming connections for python3 the first time a LAN client connects).
@@ -52,20 +52,20 @@ type=0x0e and the stored type=0x0f bank): a fader at full with Live and Master a
 """
 import argparse
 import json
-import os
 import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib import resources
 
-import artnet
-import protocol as sfl
 import usb.core
 import usb.util
 
+from . import artnet
+from . import protocol as sfl
+
 HOST = "0.0.0.0"  # listen on all interfaces, not just loopback, so LAN devices can connect
 PORT = 8765
-STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Set from --capture PATH in main(): log every message (known or not) with full hex + a timestamp
 # (see the module docstring).
@@ -565,8 +565,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _serve_file(self, name, content_type):
         try:
-            with open(os.path.join(STATIC_DIR, name), "rb") as f:
-                body = f.read()
+            body = (resources.files("consolelink") / "static" / name).read_bytes()
         except FileNotFoundError:
             self.send_response(404)
             self.end_headers()
