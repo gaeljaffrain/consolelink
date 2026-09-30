@@ -1,5 +1,5 @@
 """Channel names (type=0x09, one 39-byte record per item) and Independents (type=0x0c)."""
-import protocol as sfl
+from consolelink import protocol as sfl
 
 
 def name_table(capture):

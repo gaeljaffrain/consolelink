@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "consolelink"
+dynamic = ["version"]
+description = "Live view of an ETC SmartFade ML lighting console over USB, with optional Art-Net output"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["pyusb"]  # libusb itself is a native library: see README (conda-forge packages it)
+
+[project.scripts]
+consolelink = "consolelink.app:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "consolelink.protocol.VERSION"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+consolelink = ["static/*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

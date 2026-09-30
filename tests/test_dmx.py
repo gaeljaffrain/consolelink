@@ -2,7 +2,7 @@
 faders 1-3 on DMX 1-3, IND 1 and IND 2 on DMX 511 and 512, universe 1."""
 import pytest
 
-import protocol as sfl
+from consolelink import protocol as sfl
 
 FADER_ADDRESS = {1: 1, 2: 2, 3: 3}
 STEPS = range(6)

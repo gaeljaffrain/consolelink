@@ -1,6 +1,6 @@
 """Per-fader Bump LEDs (type=0x16): 6 bytes per fader at 1+6*(N-1), two RGB triples (the two
 blink phases). The console sends the color itself -- green in INT/PARAM, red in MEMS."""
-import protocol as sfl
+from consolelink import protocol as sfl
 
 DIM_RED = [0x46, 0, 0]
 IDLE_RED = [0x0a, 0, 0]

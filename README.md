@@ -3,7 +3,7 @@
 Talk to an ETC SmartFade ML lighting console over USB and see its live state
 (faders, master, bumps, independents, solo/blackout, both LCDs) without SmartSoft.
 
-Built from a reverse-engineered wire protocol; see [`protocol.py`](protocol.py)'s
+Built from a reverse-engineered wire protocol; see [`protocol.py`](src/consolelink/protocol.py)'s
 module docstring for the details.
 
 The protocol was reverse-engineered by running the original SmartSoft software
@@ -14,7 +14,7 @@ traces could be matched to a specific action.
 
 ## Screenshots
 
-The web app (`consolelink.py`) in a desktop browser:
+The web app (`consolelink`) in a desktop browser:
 
 ![consolelink web app on a desktop browser: Master, Bumps, Independents, Crossfader and both LCDs on top, then the INT A, INT B and INT DEV intensity rows and the 24 physical faders](screenshots/desktop.png)
 
@@ -26,11 +26,14 @@ And on a phone, where each row wraps to 6 columns:
 
 | File | What it is |
 |---|---|
-| [`protocol.py`](protocol.py) | Shared library: USB framing, the idle-poll/announce/ack handshake, and decoders for every known message type. Everything else imports this rather than re-deriving the protocol. |
-| [`consolelink.py`](consolelink.py) | The program: polls the console in a background thread and serves [`index.html`](index.html) over Server-Sent Events, so a browser tab shows live values. With `--no-web` it only polls (logging changes with `--debug`, or sending Art-Net). |
-| [`artnet.py`](artnet.py) | Optional Art-Net output of the two DMX universes, enabled with `--artnet`. |
-| [`index.html`](index.html) | Static single-page UI for `consolelink.py`: intensity meters (INT A / INT B / INT DEV), physical faders, most important buttons and indicators, like BlackOut and Master, and a mirror of the console's two LCDs, plus a "DMX Outputs" tab showing both DMX universes (1024 channels) at once. |
-| [`app.js`](app.js) | Front-end logic for `index.html`: builds the meter grid, connects to the SSE stream, and renders each incoming state update. |
+| [`src/consolelink/protocol.py`](src/consolelink/protocol.py) | Shared library: USB framing, the idle-poll/announce/ack handshake, and decoders for every known message type. Everything else imports this rather than re-deriving the protocol. |
+| [`src/consolelink/app.py`](src/consolelink/app.py) | The program (the `consolelink` command): polls the console in a background thread and serves [`index.html`](src/consolelink/static/index.html) over Server-Sent Events, so a browser tab shows live values. With `--no-web` it only polls (logging changes with `--debug`, or sending Art-Net). |
+| [`src/consolelink/artnet.py`](src/consolelink/artnet.py) | Optional Art-Net output of the two DMX universes, enabled with `--artnet`. |
+| [`src/consolelink/static/index.html`](src/consolelink/static/index.html) | Static single-page UI for `consolelink`: intensity meters (INT A / INT B / INT DEV), physical faders, most important buttons and indicators, like BlackOut and Master, and a mirror of the console's two LCDs, plus a "DMX Outputs" tab showing both DMX universes (1024 channels) at once. |
+| [`src/consolelink/static/app.js`](src/consolelink/static/app.js) | Front-end logic for `index.html`: builds the meter grid, connects to the SSE stream, and renders each incoming state update. |
+| [`src/consolelink/static/style.css`](src/consolelink/static/style.css) | Styling for `index.html`: colours, the meter and indicator layout, the blinking-LED animations, and the breakpoints that reflow the page for phones. |
+| [`src/consolelink/static/favicon.svg`](src/consolelink/static/favicon.svg) | The browser tab icon. |
+| [`pyproject.toml`](pyproject.toml) | Packaging: makes `pip install .` install the package, its web files and the `consolelink` command. |
 | [`environment.yml`](environment.yml) | Conda-forge environment spec (recommended -- see Requirements below). |
 | [`requirements.txt`](requirements.txt) | Plain pip dependencies, for setups not using conda. |
 | [`requirements-dev.txt`](requirements-dev.txt) | pip dependencies plus `pytest`, for running the tests. |
@@ -47,17 +50,21 @@ conda-forge packages both together so there's no separate system install step:
 ```
 conda env create -f environment.yml
 conda activate consolelink
+pip install .             # installs the package, its web files and the `consolelink` command
 ```
 
 **Alternative: pip.** If you'd rather not use conda, install `pyusb` via pip
 and provide `libusb` yourself:
 
 ```
-pip3 install -r requirements.txt
 brew install libusb   # macOS; see pyusb's docs for other platforms
+pip install .         # installs pyusb, the package, its web files and the `consolelink` command
 ```
 
-consolelink.py looks for the console at `idVendor=0x14D5, idProduct=0x0201` and
+(If `pip` isn't found, use `python3 -m pip install .`.) To work on the code, install with
+`pip install -e .` instead: edits to the source then take effect without reinstalling.
+
+ConsoleLink looks for the console at `idVendor=0x14D5, idProduct=0x0201` and
 claims the vendor bulk interface directly — no vendor driver required, but you
 may need permissions to access the raw USB device (on macOS this generally
 works out of the box for a user-space process).
@@ -65,18 +72,18 @@ works out of the box for a user-space process).
 ## Usage
 
 ```
-python3 consolelink.py [--debug] [--capture PATH] [--no-web] [--artnet [DEST]]
+consolelink [--debug] [--capture PATH] [--no-web] [--artnet [DEST]]
 ```
 
-Run it from inside this folder. Then open http://localhost:8765. The page updates live as
+(or `python -m consolelink ...`). Then open http://localhost:8765. The page updates live as
 controls move; it also auto-reconnects if the console is unplugged and replugged.
 
-For terminal use only, without the web server: `python3 consolelink.py --no-web --debug` prints
+For terminal use only, without the web server: `consolelink --no-web --debug` prints
 every control change (and any message type that isn't decoded yet) until Ctrl+C.
 
 The server listens on all network interfaces, so a phone or another computer on
 the same network can open it too, at `http://<IP>:8765`. To get the IP of the
-machine running `consolelink.py`:
+machine running `consolelink`:
 
 ```
 ipconfig getifaddr en0   # macOS (en0 is usually Wi-Fi; try en1 for Ethernet)
@@ -86,24 +93,27 @@ ipconfig                 # Windows (look for "IPv4 Address" under your Wi-Fi or 
 
 **Command-line options:**
 
+Run with `--help` for the full option list.
+
 | Flag | Effect |
 |---|---|
 | `--debug` | Per-control change logging to stderr (including DMX changes), plus a liveness heartbeat, handshake diagnostics, and a line for every message type that has no decoder yet. |
 | `--capture PATH` | Append every message (decoded or not) as a timestamped hex line to `PATH`, for comparing against a packet capture when something behaves unexpectedly. |
 | `--no-web` | Don't start the web server, just poll the console. Needs at least one of `--debug`, `--capture`, `--artnet`. |
 | `--artnet [DEST]` | Send both DMX universes as Art-Net to `DEST` (an IP address, or `broadcast`). Bare `--artnet` sends to `127.0.0.1`. Off by default. |
+
+| Advanced Options | Effect |
+|---|---|
 | `--artnet-universe N` | Art-Net universe for console universe 1; universe 2 goes to N+1. Default 0. |
 | `--artnet-rate HZ` | Maximum send rate when levels change. Default 40. |
 | `--artnet-keepalive SEC` | Re-send the last frame this often when nothing changes. Default 1. |
 
-Run with `--help` for the full option list.
-
 ### Art-Net output
 
 ```
-python3 consolelink.py --artnet                    # visualiser on this machine
-python3 consolelink.py --artnet 192.168.1.50       # an Art-Net node or another computer
-python3 consolelink.py --artnet broadcast          # whole local network
+consolelink --artnet                    # visualiser on this machine
+consolelink --artnet 192.168.1.50       # an Art-Net node or another computer
+consolelink --artnet broadcast          # whole local network
 ```
 
 Console universe 1 and 2 are sent as Art-Net universes 0 and 1 (change with `--artnet-universe`).
@@ -128,13 +138,13 @@ The console speaks a request/reply protocol over two USB bulk endpoints: a
 repeatedly, and the console replies with its own header, followed by a
 payload when it has one. When a control changes, the console first sends an
 "announce" (payload type `0x28`) naming which object type(s) are ready; the
-host acks by naming that type back, then the real payload follows. Both
-tools also proactively request the types they need at connect time
+host acks by naming that type back, then the real payload follows.
+ConsoleLink also proactively requests the types it needs at connect time
 (`ConsoleLink.request_type()`) rather than waiting for an announce, since
 the console's own unprompted announce loses a race against the OS's USB
 probing on connect.
 
-See `protocol.py`'s module docstring for the full message-type breakdown
+See [`protocol.py`](src/consolelink/protocol.py)'s module docstring for the full message-type breakdown
 (which types are decoded, which are known-but-not-yet decoded, and why).
 
 ## Tests
@@ -146,8 +156,8 @@ run without a console attached:
 python -m pytest
 ```
 
-(`pytest` is included in `environment.yml`; with pip, use
-`pip install -r requirements-dev.txt`.)
+(From this folder; no install needed, `pyproject.toml` points pytest at `src/`. `pytest` is
+included in `environment.yml`; with pip, use `pip install -r requirements-dev.txt`.)
 
 Each file in `tests/fixtures/` is a few messages in the same line format
 `--capture` writes, with comments saying what the console was doing, and

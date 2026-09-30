@@ -2,7 +2,7 @@
 sub-mode in data[3], MEMS page in data[2]."""
 import pytest
 
-import protocol as sfl
+from consolelink import protocol as sfl
 
 
 @pytest.mark.parametrize("tag, mode", [

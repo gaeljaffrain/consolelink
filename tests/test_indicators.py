@@ -1,5 +1,5 @@
 """Solo/BlackOut (type=0x16, offsets 517 and 523): on/off/blinking state and the LED colors."""
-import protocol as sfl
+from consolelink import protocol as sfl
 
 WHITE, BLUE, IDLE = [255, 255, 255], [0, 0, 255], [10, 10, 10]
 
