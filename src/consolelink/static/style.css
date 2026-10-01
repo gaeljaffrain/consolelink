@@ -223,7 +223,7 @@ h1 {
   grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
   gap: var(--gap);
   align-items: end;
-  /* Safety net: if a row is still too tight for the fixed-size badge/bar/value content to
+  /* Safety net: if a row is still too tight for the fixed-size label/bar/value content to
      shrink into, scroll horizontally instead of silently overflowing the page. */
   overflow-x: auto;
 }
@@ -265,7 +265,7 @@ h1 {
   border: 1px solid var(--grid);
   border-radius: 4px;
   padding: 4px;
-  /* At narrow widths a column can compress below its badge/value text's natural
+  /* At narrow widths a column can compress below its label/value text's natural
      size -- clip rather than let it bleed into neighboring columns. */
   overflow: hidden;
 }
@@ -305,7 +305,7 @@ h1 {
   margin-top: 4px;
   height: 1.1em;
 }
-.meter .number,
+.meter .meter-label,
 .meter .name {
   font-size: 9px;
   color: var(--dim);
@@ -317,14 +317,14 @@ h1 {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.meter .number {
+.meter .meter-label {
   height: 1.2em;
 }
 
 /* INT A/B/DEV intensity meters and Master/Bumps (.special-meter) share this compact layout:
-   the number/label as a header above a narrow bar, and a large value readout next to it. */
-.intensity-row .meter .number,
-.special-meter .number {
+   the meter label as a header above a narrow bar, and a large value readout next to it. */
+.intensity-row .meter .meter-label,
+.special-meter .meter-label {
   font-size: 15px;
   font-weight: 700;
   color: var(--text);
@@ -361,9 +361,9 @@ h1 {
   text-align: center;
 }
 
-/* MASTER/BUMPS is longer than a 1-2 digit intensity number, so it gets a smaller badge font
-   that wraps instead of the numeric badges' nowrap+ellipsis truncation. */
-.special-meter .number {
+/* MASTER/BUMPS is longer than a 1-2 digit intensity number, so it gets a smaller label font
+   that wraps instead of the numeric labels' nowrap+ellipsis truncation. */
+.special-meter .meter-label {
   font-size: 10px;
   white-space: normal;
 }
@@ -386,7 +386,7 @@ h1 {
    this font size and weight -- one shared rule instead of repeating the same two values in
    each context below, which only differ in line-height/height/color/wrapping. */
 .name-line,
-.ind-button.ind-mini .light {
+.console-button.console-mini .light {
   font-size: 10px;
   font-weight: 600;
 }
@@ -447,7 +447,7 @@ h1 {
   border-radius: 6px;
   padding: 4px 4px 6px;
 }
-/* Header badge, same look as MASTER/BUMPS's .number above their meters. */
+/* Header label, same look as MASTER/BUMPS's .meter-label above their meters. */
 .lcd-label {
   font-size: 10px;
   font-weight: 700;
@@ -492,14 +492,14 @@ h1 {
 
 /* Independents are toggle/bump buttons on the console (per the manual), not faders --
    rendered as a light that turns on, not a bar that fills. */
-.ind-button {
+.console-button {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
   width: 60px;
 }
-.ind-button .light {
+.console-button .light {
   width: 44px;
   height: 44px;
   border-radius: 8px;
@@ -515,12 +515,12 @@ h1 {
 /* SOLO/BLACKOUT live inside Bumps'/Master's .name slot instead of standing alone: compact,
    full-width, with the label inside the light box itself rather than below it. */
 body.writable [data-button] { cursor: pointer; }
-.ind-button.ind-mini {
+.console-button.console-mini {
   width: 100%;
   height: 100%;
   gap: 0;
 }
-.ind-button.ind-mini .light {
+.console-button.console-mini .light {
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -529,15 +529,15 @@ body.writable [data-button] { cursor: pointer; }
   line-height: 1.15;
   padding: 1px;
   white-space: normal;
-  /* Inactive: same background as the .number badge above the bar. */
+  /* Inactive: same background as the .meter-label above the bar. */
   background: var(--grid);
   border-color: var(--grid);
   color: var(--dim);
 }
 /* Active: the console's own LED color (--color-a/--color-b, set in app.js) -- white for SOLO,
    blue for BLACKOUT -- falling back to the page's colors before the first type=0x16. Glow and
-   text stay the page's own, for contrast. IDs so these beat the generic .ind-button.on rules. */
-#ind-solo.on .light {
+   text stay the page's own, for contrast. IDs so these beat the generic .console-button.on rules. */
+#btn-solo.on .light {
   background: var(--color-a, var(--bumps));
   border-color: var(--color-a, var(--bumps));
   /* Text color, not button color: white background needs dark text for contrast, distinct
@@ -545,7 +545,7 @@ body.writable [data-button] { cursor: pointer; }
   color: var(--darktext);
   box-shadow: 0 0 10px var(--bumps);
 }
-#ind-blackout.on .light {
+#btn-blackout.on .light {
   background: var(--color-a, var(--master));
   border-color: var(--color-a, var(--master));
   color: var(--text);
@@ -564,25 +564,25 @@ body.writable [data-button] { cursor: pointer; }
   0%, 49%   { background: var(--color-a, var(--master)); border-color: var(--color-a, var(--master)); color: var(--text); box-shadow: 0 0 10px var(--master); }
   50%, 100% { background: var(--color-b, var(--grid)); border-color: var(--color-b, var(--grid)); color: var(--dim); box-shadow: none; }
 }
-#ind-solo.blinking .light { animation: blink-solo var(--blink-duration) steps(1) infinite; }
-#ind-blackout.blinking .light { animation: blink-blackout var(--blink-duration) steps(1) infinite; }
+#btn-solo.blinking .light { animation: blink-solo var(--blink-duration) steps(1) infinite; }
+#btn-blackout.blinking .light { animation: blink-blackout var(--blink-duration) steps(1) infinite; }
 /* IND 1/2's button shows the Independent's name as 3 lines, same as the intensity rows,
    instead of SOLO/BLACKOUT's single static label -- override the centered
-   single-line layout inherited from .ind-button .light with a column of small rows. */
-#ind-1 .light,
-#ind-2 .light {
+   single-line layout inherited from .console-button .light with a column of small rows. */
+#btn-ind1 .light,
+#btn-ind2 .light {
   flex-direction: column;
   justify-content: center;
   gap: 0;
 }
-#ind-1 .light .name-line,
-#ind-2 .light .name-line {
+#btn-ind1 .light .name-line,
+#btn-ind2 .light .name-line {
   line-height: 1.15;
   height: 1.15em;
   color: inherit;
 }
-#ind-1.on .light,
-#ind-2.on .light {
+#btn-ind1.on .light,
+#btn-ind2.on .light {
   background: var(--accent-green);
   border-color: var(--accent-green);
   /* Pale green background, same as SOLO's white -- needs dark text, not BLACKOUT's light. */
@@ -592,8 +592,8 @@ body.writable [data-button] { cursor: pointer; }
 /* Shape cues, so on and blinking don't rely on colour alone: a solid ring when on, a dashed one
    while blinking. currentColor is the text colour each state already picks for contrast with
    its own background; the negative offset keeps the ring inside the box. */
-.ind-button.on .light       { outline: 2px solid currentColor;  outline-offset: -4px; }
-.ind-button.blinking .light { outline: 2px dashed currentColor; outline-offset: -4px; }
+.console-button.on .light       { outline: 2px solid currentColor;  outline-offset: -4px; }
+.console-button.blinking .light { outline: 2px dashed currentColor; outline-offset: -4px; }
 /* The Physical Faders row's light swatch: no text, just a color (solid,
    intensity-proportional once caught; blinking between two brightness levels while the
    physical fader hasn't caught its stored value yet). Colors are the console's own RGB
@@ -641,13 +641,13 @@ body.writable [data-button] { cursor: pointer; }
   .section { padding: 6px 8px; }
   .section.section-row { gap: 8px; }
   .meter { padding: 2px; }
-  .intensity-row .meter .number { font-size: 13px; }
-  /* "MASTER" is the one badge word that can't wrap, and at 10px it's ~3px too wide for a ~44px
-     column. The LCD labels (below) follow, to keep the badges matching. */
+  .intensity-row .meter .meter-label { font-size: 13px; }
+  /* "MASTER" is the one label word that can't wrap, and at 10px it's ~3px too wide for a ~44px
+     column. The LCD labels (below) follow, to keep them matching. */
   /* IND 1/2's name sits inside the button's own border and padding, so it has ~6px less than
      an intensity name -- a full 6-character line needs the smaller font at ~44px columns. */
-  #ind-1 .light .name-line,
-  #ind-2 .light .name-line { font-size: 9px; }
+  #btn-ind1 .light .name-line,
+  #btn-ind2 .light .name-line { font-size: 9px; }
   .intensity-row .meter .value-row,
   .special-meter .value-row { gap: 3px; }
   .intensity-row .meter .track,
@@ -655,7 +655,7 @@ body.writable [data-button] { cursor: pointer; }
   .intensity-row .meter .val,
   .special-meter .val { font-size: 18px; }
   .lcd { padding: 2px 2px 4px; }
-  .special-meter .number,
+  .special-meter .meter-label,
   .lcd-label { font-size: 9px; }
 }
 

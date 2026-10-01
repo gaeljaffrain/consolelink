@@ -29,7 +29,7 @@ function buildIntensityMeters(mode) {
     f.className = "meter";
     f.id = "intensity-" + mode + "-" + i;
     f.innerHTML = `
-      <div class="number">${i}</div>
+      <div class="meter-label">${i}</div>
       <div class="value-row">
         <div class="track"><div class="fill" style="height:0%"></div></div>
         <div class="val">0</div>
@@ -51,7 +51,7 @@ function buildPhysicalFaderMeters() {
     f.className = "meter";
     f.id = "physfader-" + i;
     f.innerHTML = `
-      <div class="number">${i}</div>
+      <div class="meter-label">${i}</div>
       <div class="value-row">
         <div class="track"><div class="fill" style="height:0%"></div></div>
         <div class="val">0</div>
@@ -473,7 +473,7 @@ function render(state) {
     for (let i = 1; i <= 24; i++) {
       const el = document.getElementById("intensity-" + mode + "-" + i);
       setBar(el, state.intensities[mode][i - 1], true);
-      el.querySelector(".number").textContent = String(i);
+      el.querySelector(".meter-label").textContent = String(i);
       setName(el, state.labels?.[mode]?.[i]);
     }
   });
@@ -495,12 +495,12 @@ function render(state) {
     updateFaderGroupBars();
   }
 
-  setIndependent(document.getElementById("ind1"), document.getElementById("ind-1"),
+  setIndependent(document.getElementById("ind1"), document.getElementById("btn-ind1"),
     state.independent1, state.independent1_clicked, state.independent_labels?.[1]);
-  setIndependent(document.getElementById("ind2"), document.getElementById("ind-2"),
+  setIndependent(document.getElementById("ind2"), document.getElementById("btn-ind2"),
     state.independent2, state.independent2_clicked, state.independent_labels?.[2]);
-  setIndicator(document.getElementById("ind-solo"), state.solo, state.indicator_lights?.solo, true);
-  setIndicator(document.getElementById("ind-blackout"), state.blackout,
+  setIndicator(document.getElementById("btn-solo"), state.solo, state.indicator_lights?.solo, true);
+  setIndicator(document.getElementById("btn-blackout"), state.blackout,
     state.indicator_lights?.blackout, true);
 
   setLcds(state.lcd);
