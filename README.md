@@ -100,22 +100,23 @@ hostname -I              # Linux
 ipconfig                 # Windows (look for "IPv4 Address" under your Wi-Fi or Ethernet adapter)
 ```
 
-**Command-line options:**
+**Command-line options** (`consolelink --help` lists them too):
 
-Run with `--help` for the full option list.
+- `--debug`: per-control change logging to stderr (including DMX changes), plus a liveness
+  heartbeat, handshake diagnostics, and a line for every message type that has no decoder yet.
+- `--capture PATH`: append every message (decoded or not) as a timestamped hex line to `PATH`, for
+  comparing against a packet capture when something behaves unexpectedly.
+- `--no-web`: don't start the web server, just poll the console. Needs at least one of `--debug`,
+  `--capture`, `--artnet`.
+- `--artnet [DEST]`: send both DMX universes as Art-Net to `DEST` (an IP address, or `broadcast`).
+  Bare `--artnet` sends to `127.0.0.1`. Off by default.
 
-| Flag | Effect |
-|---|---|
-| `--debug` | Per-control change logging to stderr (including DMX changes), plus a liveness heartbeat, handshake diagnostics, and a line for every message type that has no decoder yet. |
-| `--capture PATH` | Append every message (decoded or not) as a timestamped hex line to `PATH`, for comparing against a packet capture when something behaves unexpectedly. |
-| `--no-web` | Don't start the web server, just poll the console. Needs at least one of `--debug`, `--capture`, `--artnet`. |
-| `--artnet [DEST]` | Send both DMX universes as Art-Net to `DEST` (an IP address, or `broadcast`). Bare `--artnet` sends to `127.0.0.1`. Off by default. |
+**Advanced options** (Art-Net tuning):
 
-| Advanced Options | Effect |
-|---|---|
-| `--artnet-universe N` | Art-Net universe for console universe 1; universe 2 goes to N+1. Default 0. |
-| `--artnet-rate HZ` | Maximum send rate when levels change. Default 40. |
-| `--artnet-keepalive SEC` | Re-send the last frame this often when nothing changes. Default 1. |
+- `--artnet-universe N`: Art-Net universe for console universe 1; universe 2 goes to N+1.
+  Default 0.
+- `--artnet-rate HZ`: maximum send rate when levels change. Default 40.
+- `--artnet-keepalive SEC`: re-send the last frame this often when nothing changes. Default 1.
 
 ### Art-Net output
 
@@ -177,15 +178,23 @@ regression.
 
 ## Releasing
 
+Release from `main`, after the work is merged from the feature branch:
+
 ```
-git status                     # the tree must be clean: commit your work first
+git checkout main && git pull
+git status                     # the tree must be clean
 bump-my-version bump patch     # or minor / major; add --dry-run -vv to preview
 git push --follow-tags         # pushes the commit and the tag together
 ```
 
 `bump-my-version` (part of the `dev` extra) edits `VERSION` in `src/consolelink/protocol.py`,
-commits "Bump version: a → b" and creates the annotated tag `vb`, so the file and the tag can't
-drift apart. Don't edit `VERSION` by hand.
+commits it, and creates an annotated tag, so the file and the tag can't drift apart. Going from
+0.1.1 to 0.1.2, for example, it commits "Bump version: 0.1.1 → 0.1.2" and tags that commit `v0.1.2`
+(annotated: the tag records who made it, when, and the message "Version 0.1.2"). Don't edit
+`VERSION` by hand.
+
+Don't bump on a feature branch and merge it afterwards: a rebase or squash merge re-creates the
+commits with new IDs, and the tag stays on the old one, which is no longer on `main`.
 
 ## License
 
