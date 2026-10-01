@@ -33,36 +33,45 @@ And on a phone, where each row wraps to 6 columns:
 | [`src/consolelink/static/app.js`](src/consolelink/static/app.js) | Front-end logic for `index.html`: builds the meter grid, connects to the SSE stream, and renders each incoming state update. |
 | [`src/consolelink/static/style.css`](src/consolelink/static/style.css) | Styling for `index.html`: colours, the meter and indicator layout, the blinking-LED animations, and the breakpoints that reflow the page for phones. |
 | [`src/consolelink/static/favicon.svg`](src/consolelink/static/favicon.svg) | The browser tab icon. |
-| [`pyproject.toml`](pyproject.toml) | Packaging: makes `pip install .` install the package, its web files and the `consolelink` command. |
-| [`environment.yml`](environment.yml) | Conda-forge environment spec (recommended -- see Requirements below). |
-| [`requirements.txt`](requirements.txt) | Plain pip dependencies, for setups not using conda. |
-| [`requirements-dev.txt`](requirements-dev.txt) | pip dependencies plus `pytest`, for running the tests. |
+| [`pyproject.toml`](pyproject.toml) | Packaging: makes `pip install .` install the package, its web files and the `consolelink` command; lists the dependencies, including the `dev` extra (`pytest`, `bump-my-version`). |
 | [`tests/`](tests/) | Decoder and server tests, replaying recorded console traffic from [`tests/fixtures/`](tests/fixtures/) -- no console needed. |
 
 ## Requirements
 
-- [`pyusb`](https://pypi.org/project/pyusb/), backed by a native `libusb` library
+- Python 3.10 or newer. macOS's built-in `python3` is older (3.9): install a current one, for
+  example `brew install python`, and create the virtual environment below with it
+- A native `libusb` library, which `pyusb` uses to talk to the console:
+  `brew install libusb` on macOS, `sudo apt install libusb-1.0-0` on Debian/Ubuntu
+  (Windows: not tried)
 - The console connected over USB and powered on
 
-**Recommended: conda-forge.** `pyusb` needs a native `libusb` backend, and
-conda-forge packages both together so there's no separate system install step:
+## Install
 
 ```
-conda env create -f environment.yml
+python3 -m venv .venv
+source .venv/bin/activate
+pip install .
+```
+
+`pip install .` installs `pyusb`, the package with its web files, and the `consolelink` command.
+Activate the environment again (`source .venv/bin/activate`) in any new terminal before running
+`consolelink`.
+
+**With conda instead:** conda-forge packages `libusb` together with `pyusb`, so there's no
+separate system install.
+
+```
+conda create -n consolelink python=3.11 pyusb libusb
 conda activate consolelink
-pip install .             # installs the package, its web files and the `consolelink` command
+pip install .
 ```
 
-**Alternative: pip.** If you'd rather not use conda, install `pyusb` via pip
-and provide `libusb` yourself:
+**To work on the code**, install with the `dev` extra (adds `pytest` and `bump-my-version`) and
+`-e`, so edits to the source take effect without reinstalling:
 
 ```
-brew install libusb   # macOS; see pyusb's docs for other platforms
-pip install .         # installs pyusb, the package, its web files and the `consolelink` command
+pip install -e ".[dev]"
 ```
-
-(If `pip` isn't found, use `python3 -m pip install .`.) To work on the code, install with
-`pip install -e .` instead: edits to the source then take effect without reinstalling.
 
 ConsoleLink looks for the console at `idVendor=0x14D5, idProduct=0x0201` and
 claims the vendor bulk interface directly — no vendor driver required, but you
@@ -153,11 +162,11 @@ The tests replay real console traffic recorded from a SmartFade ML, so they
 run without a console attached:
 
 ```
+pip install -e ".[dev]"    # once
 python -m pytest
 ```
 
-(From this folder; no install needed, `pyproject.toml` points pytest at `src/`. `pytest` is
-included in `environment.yml`; with pip, use `pip install -r requirements-dev.txt`.)
+(Run from this folder. `pyproject.toml` points pytest at `src/`.)
 
 Each file in `tests/fixtures/` is a few messages in the same line format
 `--capture` writes, with comments saying what the console was doing, and
@@ -165,6 +174,18 @@ Each file in `tests/fixtures/` is a few messages in the same line format
 the tests are what the console itself showed at the time -- not just whatever
 the decoder currently returns -- so a decoder change that breaks one is a real
 regression.
+
+## Releasing
+
+```
+git status                     # the tree must be clean: commit your work first
+bump-my-version bump patch     # or minor / major; add --dry-run -vv to preview
+git push --follow-tags         # pushes the commit and the tag together
+```
+
+`bump-my-version` (part of the `dev` extra) edits `VERSION` in `src/consolelink/protocol.py`,
+commits "Bump version: a → b" and creates the annotated tag `vb`, so the file and the tag can't
+drift apart. Don't edit `VERSION` by hand.
 
 ## License
 
