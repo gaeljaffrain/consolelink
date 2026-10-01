@@ -70,7 +70,7 @@ PORT = 8765
 
 # Set from --capture PATH in main(): log every message (known or not) with full hex + a timestamp
 # (see the module docstring).
-CAPTURE_PATH = ""
+capture_path = ""
 
 INTENSITY_MODES = ("INT A", "INT B", "INT DEV")  # sub-modes with a decoded intensity bank (type=0x0e/0x0f)
 ALL_FADER_MODES = INTENSITY_MODES + ("PARAM 1", "PARAM 2", "MEMS")  # every mode the physical fader-mode selector (type=0x17) can report
@@ -125,7 +125,7 @@ def update_state(**kwargs):
 # Off by default -- run with --debug for per-control change logging, a liveness heartbeat, and
 # announce/ack handshake visibility. Distinguishes "nothing arrived on the wire" from "arrived
 # but decoded/rendered wrong" far faster than guessing. Set from args in main().
-DEBUG = False
+debug = False
 _last_logged_master = None
 _last_logged_selection = None
 _last_logged_intensities = {mode: [0] * 24 for mode in INTENSITY_MODES}
@@ -150,7 +150,7 @@ def handle_payload(obj_type, data):
         full = sfl.decode_0x0e_full(data)
         if full is not None:
             faders, bumps, master = full
-            if DEBUG and master != _last_logged_master:
+            if debug and master != _last_logged_master:
                 print(f"[master] t={time.time() - _t_start:7.3f}  {_last_logged_master} -> {master}",
                       file=sys.stderr)
                 _last_logged_master = master
@@ -161,7 +161,7 @@ def handle_payload(obj_type, data):
                 # whether type=0x0e's raw fader value even means "intensity" in those other
                 # modes is still an open RE question, and indexing with "PARAM 1" is a KeyError.
                 if mode in INTENSITY_MODES:
-                    if DEBUG and faders != _last_logged_intensities[mode]:
+                    if debug and faders != _last_logged_intensities[mode]:
                         changed = {i + 1: (_last_logged_intensities[mode][i], v)
                                    for i, v in enumerate(faders) if v != _last_logged_intensities[mode][i]}
                         print(f"[intensity:{mode}] t={time.time() - _t_start:7.3f}  "
@@ -181,7 +181,7 @@ def handle_payload(obj_type, data):
     elif obj_type == 0x17:
         mode = sfl.decode_0x17(data)
         if mode in ALL_FADER_MODES:
-            if DEBUG:
+            if debug:
                 print(f"[mode] t={time.time() - _t_start:7.3f}  "
                       f"{state['fader_mode']} -> {mode} (now confirmed)", file=sys.stderr)
             update = {"fader_mode": mode, "fader_mode_confirmed": True}
@@ -189,7 +189,7 @@ def handle_payload(obj_type, data):
                 page = sfl.decode_0x17_mems_page(data)
                 if page is not None:
                     update["mems_page"] = page
-                    if DEBUG:
+                    if debug:
                         print(f"[mems page] t={time.time() - _t_start:7.3f}  page={page}",
                               file=sys.stderr)
             update_state(**update)
@@ -197,7 +197,7 @@ def handle_payload(obj_type, data):
     elif obj_type == 0x09:
         labels = sfl.decode_0x09_labels(data)
         if labels:
-            if DEBUG:
+            if debug:
                 received = [(family, index, lines)
                             for family, entries in labels.items()
                             for index, lines in entries.items()]
@@ -229,7 +229,7 @@ def handle_payload(obj_type, data):
         if 2 in entries and any(entries[2][2]):
             update.setdefault("independent_labels", {})
             update["independent_labels"][2] = entries[2][2]
-        if DEBUG and update:
+        if debug and update:
             print(f"[independents] t={time.time() - _t_start:7.3f}  {update}", file=sys.stderr)
         if update:
             update_state(**{k: v for k, v in update.items() if k not in {"independent_labels"}})
@@ -243,7 +243,7 @@ def handle_payload(obj_type, data):
         flags = sfl.decode_0x16_indicators(data)
         update = {k: v for k, v in (("solo", flags["solo"]), ("blackout", flags["blackout"]))
                   if v is not None}
-        if DEBUG and update:
+        if debug and update:
             print(f"[solo/blackout] t={time.time() - _t_start:7.3f}  {update}", file=sys.stderr)
         if update:
             update_state(**update)
@@ -274,7 +274,7 @@ def handle_payload(obj_type, data):
         full = sfl.decode_0x11_full(data)
         if full is not None:
             live, next_ = full
-            if DEBUG and (live, next_) != (state["crossfader_live"], state["crossfader_next"]):
+            if debug and (live, next_) != (state["crossfader_live"], state["crossfader_next"]):
                 print(f"[crossfader] t={time.time() - _t_start:7.3f}  live={live} next={next_}",
                       file=sys.stderr)
             update_state(crossfader_live=live, crossfader_next=next_)
@@ -282,7 +282,7 @@ def handle_payload(obj_type, data):
     elif obj_type == 0x0d:
         universes = sfl.decode_0x0d_dmx(data)
         if universes is not None:
-            if DEBUG:
+            if debug:
                 old = state["dmx"] or [[0] * 512, [0] * 512]
                 changes = [f"U{u + 1}.{a + 1}={universes[u][a]}" for u in range(2) for a in range(512)
                            if universes[u][a] != old[u][a]]
@@ -295,7 +295,7 @@ def handle_payload(obj_type, data):
     elif obj_type == 0x15:
         lines = sfl.decode_0x15(data)
         if lines is not None:
-            if DEBUG and lines != state["lcd"]:
+            if debug and lines != state["lcd"]:
                 print(f"[lcd] t={time.time() - _t_start:7.3f}  {lines!r}", file=sys.stderr)
             update_state(lcd=lines)
     # MEMS memory ("Look") names, connect-time only -- see decode_0x00_memory_name in
@@ -304,7 +304,7 @@ def handle_payload(obj_type, data):
         result = sfl.decode_0x00_memory_name(data)
         if result is not None:
             page, slot, lines = result
-            if DEBUG and any(lines):
+            if debug and any(lines):
                 print(f"[mems label] page={page + 1} slot={slot + 1}: {lines!r}", file=sys.stderr)
             with state_condition:
                 state["labels"]["MEMS"].setdefault(page + 1, {})[slot + 1] = lines
@@ -313,11 +313,11 @@ def handle_payload(obj_type, data):
     # Device/Palette-Select selection: not shown in the web UI, only logged under --debug
     elif obj_type == 0x18:
         ids = sfl.decode_0x18(data)
-        if DEBUG and ids is not None and ids != _last_logged_selection:
+        if debug and ids is not None and ids != _last_logged_selection:
             print(f"[selection] t={time.time() - _t_start:7.3f}  ids={ids}", file=sys.stderr)
             _last_logged_selection = ids
     # Anything without a decoder: silent, except under --debug, where it is worth seeing
-    elif DEBUG:
+    elif debug:
         if obj_type in sfl.KNOWN_UNDECODED_TYPES:
             # Seen in captures but not decoded -- not fader data, not an error.
             label = "known, undecoded"
@@ -359,10 +359,10 @@ def poll_forever(stop_event):
         update_state(connected=True, device=sfl.MODEL_NAMES.get(dev.idProduct))
         print(f"[consolelink] connected: {dev.manufacturer!r} {dev.product!r}")
 
-        capture_f = open(CAPTURE_PATH, "a") if CAPTURE_PATH else None
+        capture_f = open(capture_path, "a") if capture_path else None
         capture_t0 = time.time()
         if capture_f:
-            print(f"[consolelink] raw capture logging to {CAPTURE_PATH}", file=sys.stderr)
+            print(f"[consolelink] raw capture logging to {capture_path}", file=sys.stderr)
 
         def log_capture(kind, obj_type, data):
             if capture_f:
@@ -377,7 +377,7 @@ def poll_forever(stop_event):
         if mode_type is not None:
             log_capture("requested", mode_type, mode_data)
             handle_payload(mode_type, mode_data)
-        elif DEBUG:
+        elif debug:
             print("[consolelink] proactive 0x17 request got no reply", file=sys.stderr)
 
         # Ask for current fader/master/bumps state directly rather than relying on the
@@ -388,7 +388,7 @@ def poll_forever(stop_event):
         if obj_type is not None:
             log_capture("requested", obj_type, data)
             handle_payload(obj_type, data)
-        elif DEBUG:
+        elif debug:
             print("[consolelink] proactive 0x0e request got no reply", file=sys.stderr)
 
         # type=0x0f holds all three intensity banks at once, so INT B/INT DEV get real data on
@@ -398,7 +398,7 @@ def poll_forever(stop_event):
         if all_type is not None:
             log_capture("requested", all_type, all_data)
             handle_payload(all_type, all_data)
-        elif DEBUG:
+        elif debug:
             print("[consolelink] proactive 0x0f request got no reply", file=sys.stderr)
 
         # Independents, Solo/BlackOut, the LCD text, the crossfaders and the DMX output are
@@ -409,7 +409,7 @@ def poll_forever(stop_event):
             if obj_type is not None:
                 log_capture("requested", obj_type, data)
                 handle_payload(obj_type, data)
-            elif DEBUG:
+            elif debug:
                 print(f"[consolelink] proactive {label} request got no reply", file=sys.stderr)
 
         consecutive_write_fails = 0
@@ -419,7 +419,7 @@ def poll_forever(stop_event):
         plain_poll_started = time.time()
         gui_requests_sent = False
         while not stop_event.is_set():
-            if DEBUG and time.time() - last_heartbeat >= 10.0:
+            if debug and time.time() - last_heartbeat >= 10.0:
                 # Distinguishes "still polling fine, nothing new" from a genuine stall -- if
                 # this stops appearing, the loop is stuck above, likely in a read/write that
                 # isn't timing out (the announce/ack path has its own DROPPED logging instead).
@@ -474,34 +474,34 @@ def poll_forever(stop_event):
                 for announced_type, selector in announced_entries:
                     # NOTE: every `continue` below silently drops this announced update with
                     # NO retry. Never observed firing in practice, but if a future "misses
-                    # the last state" report comes back, enable DEBUG and one of these lines
+                    # the last state" report comes back, enable debug and one of these lines
                     # should show up right when it happens.
                     ack_state = (announced_type, selector[0], selector[1], 0)
                     if not link.write_header(2, 0, ack_state):
-                        if DEBUG:
+                        if debug:
                             print(f"[announce 0x{announced_type:02x} t={time.time() - _t_start:7.3f}] "
                                   f"DROPPED: ack write failed", file=sys.stderr)
                         continue
                     if not link.write_header(0, 0, ack_state):
-                        if DEBUG:
+                        if debug:
                             print(f"[announce 0x{announced_type:02x} t={time.time() - _t_start:7.3f}] "
                                   f"DROPPED: follow-up poll write failed", file=sys.stderr)
                         continue
                     ack_reply = link.read_header()
                     if ack_reply is None:
-                        if DEBUG:
+                        if debug:
                             print(f"[announce 0x{announced_type:02x} t={time.time() - _t_start:7.3f}] "
                                   f"DROPPED: ack header read timed out", file=sys.stderr)
                         continue
                     _, ack_payload_len, _ = ack_reply
                     if ack_payload_len == 0:
-                        if DEBUG:
+                        if debug:
                             print(f"[announce 0x{announced_type:02x} t={time.time() - _t_start:7.3f}] "
                                   f"DROPPED: ack reply had payloadLen=0", file=sys.stderr)
                         continue
                     ack_raw = link.read_payload(ack_payload_len)
                     if ack_raw is None:
-                        if DEBUG:
+                        if debug:
                             print(f"[announce 0x{announced_type:02x} t={time.time() - _t_start:7.3f}] "
                                   f"DROPPED: payload read timed out", file=sys.stderr)
                         continue
@@ -630,7 +630,7 @@ class QuietThreadingHTTPServer(ThreadingHTTPServer):
 
 
 def main():
-    global DEBUG, CAPTURE_PATH, artnet_sender, write_enabled
+    global debug, capture_path, artnet_sender, write_enabled
     parser = argparse.ArgumentParser(
         description="Local web app showing live console state (physical faders + per-mode intensities).")
     parser.add_argument("--debug", action="store_true",
@@ -655,10 +655,10 @@ def main():
                      "(otherwise there is nothing to do)")
     if args.allow_write and args.no_web:
         parser.error("--allow-write needs the web page (drop --no-web)")
-    DEBUG = args.debug
+    debug = args.debug
     write_enabled = args.allow_write
     update_state(write_enabled=write_enabled)
-    CAPTURE_PATH = args.capture
+    capture_path = args.capture
     artnet_sender = artnet.sender_from_args(args, parser)
 
     stop_event = threading.Event()
