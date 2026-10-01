@@ -8,7 +8,10 @@ dynamic = ["version"]
 description = "Live view of an ETC SmartFade ML lighting console over USB, with optional Art-Net output"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["pyusb"]  # libusb itself is a native library: see README (conda-forge packages it)
+dependencies = ["pyusb"]  # libusb itself is a native library: see README (Requirements)
+
+[project.optional-dependencies]
+dev = ["pytest", "bump-my-version"]
 
 [project.scripts]
 consolelink = "consolelink.app:main"
@@ -24,3 +27,16 @@ consolelink = ["static/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+
+# `bump-my-version bump patch|minor|major` edits VERSION, commits and tags (see README, Releasing).
+[tool.bumpversion]
+current_version = "0.1.1"
+commit = true
+tag = true
+tag_name = "v{new_version}"
+tag_message = "Version {new_version}"
+
+[[tool.bumpversion.files]]
+filename = "src/consolelink/protocol.py"
+search = 'VERSION = "{current_version}"'
+replace = 'VERSION = "{new_version}"'
