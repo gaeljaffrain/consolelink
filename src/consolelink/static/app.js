@@ -448,6 +448,7 @@ let lastState = null;  // re-rendered as-is when the saturation slider moves
 
 function render(state) {
   lastState = state;
+  document.body.classList.toggle("writable", state.write_enabled === true);
   const dot = document.getElementById("dot");
   const connText = document.getElementById("conn-text");
   dot.classList.toggle("ok", state.connected);
@@ -558,6 +559,16 @@ try {
   const storedTab = localStorage.getItem(TAB_KEY);
   if (TABS.includes(storedTab)) showTab(storedTab);
 } catch (e) { /* stays on Playback */ }
+
+// Buttons marked data-button toggle that console function (BlackOut, Solo, Independents) when
+// the server runs with --allow-write. The new state comes back through the normal SSE stream
+// (a button only lights when the console reports it), not set locally.
+document.querySelectorAll("[data-button]").forEach((el) => {
+  el.addEventListener("click", () => {
+    if (!document.body.classList.contains("writable")) return;
+    fetch(`/api/button/${el.dataset.button}`, { method: "POST" }).catch(() => {});
+  });
+});
 
 connect();
 

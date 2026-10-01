@@ -67,6 +67,7 @@ Decodes:
 
 import struct
 import sys
+import time
 
 import usb.core
 import usb.util
@@ -114,6 +115,18 @@ def find_bulk_interface(dev):
             if ep_in is not None and ep_out is not None:
                 return intf.bInterfaceNumber, intf.bAlternateSetting, ep_in, ep_out
     return None
+
+
+# Console button codes, for ConsoleLink.press_button(). A virtual press is what SmartSoft sends when
+# its Live tab is clicked: the console toggles the function exactly as if its own button were
+# pressed. Confirmed on the console for BlackOut (a press toggles it and the change comes back as a
+# type=0x16 BlackOut indicator update); Solo and the Independents were pressed the same way and their
+# indicators changed too, but are not exposed yet.
+BUTTON_SOLO = 0x56
+BUTTON_BLACKOUT = 0x57
+BUTTON_IND1 = 0x5F
+BUTTON_IND2 = 0x60
+BUTTON_RELEASE_DELAY = 0.12  # SmartSoft sends the release 0.12-0.17 s after the press
 
 
 def pack_header(msg_type, payload_len, state=(0, 0, 0, 0)):
@@ -528,6 +541,7 @@ class ConsoleLink:
         self.ep_out = ep_out
         self.write_errors = 0
         self.read_timeouts = 0
+        self.next_seq = 2  # seq 0 and 1 are used by send_gui_request() at connect
 
     def write_header(self, msg_type, payload_len=0, state=(0, 0, 0, 0)):
         try:
@@ -597,6 +611,26 @@ class ConsoleLink:
         if not self.write_header(1, 4 + len(data)):
             return False
         return self.write_payload(seq, 0x27, data)
+
+    def send_button(self, code, pressed):
+        """Send one button event OUT: msgType=1 header, then a type=0x14 payload with data
+        [kind=1 (button)][code][pressed 1/0]. The sequence byte is a per-link counter (SmartSoft
+        continues from 2 after its two connect-time type=0x27 requests; this client's own
+        requests use 0 and 1)."""
+        seq = self.next_seq
+        self.next_seq = (seq + 1) & 0xFF
+        data = bytes([1, code, 1 if pressed else 0])
+        if not self.write_header(1, 4 + len(data)):
+            return False
+        return self.write_payload(seq, 0x14, data)
+
+    def press_button(self, code):
+        """Press then release a console button, like a click in SmartSoft. Toggle buttons
+        (BlackOut, Solo, Independents) flip state once per call."""
+        if not self.send_button(code, True):
+            return False
+        time.sleep(BUTTON_RELEASE_DELAY)
+        return self.send_button(code, False)
 
     def request_type(self, type_byte):
         """Proactively ask the console for the current value of a given object type, without

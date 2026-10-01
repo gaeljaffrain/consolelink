@@ -52,6 +52,7 @@ type=0x0e and the stored type=0x0f bank): a fader at full with Live and Master a
 """
 import argparse
 import json
+import queue
 import sys
 import threading
 import time
@@ -109,6 +110,7 @@ state = {
     # [LCD 1 line 1, LCD 1 line 2, LCD 2 line 1, LCD 2 line 2] -- see decode_0x15
     "dmx": None,  # None until the first type=0x0d; then [universe 1, universe 2], each a list of
     # 512 raw 0-255 levels (index 0 = address 1) -- see decode_0x0d_dmx in protocol.py
+    "write_enabled": False,  # True when started with --allow-write; the page enables its buttons
     "last_update": 0.0,
 }
 state_lock = threading.Lock()
@@ -128,6 +130,15 @@ _last_logged_master = None
 _last_logged_selection = None
 _last_logged_intensities = {mode: [0] * 24 for mode in INTENSITY_MODES}
 _t_start = time.time()
+
+# Console button presses requested over HTTP (POST /api/button/<name>), sent by the USB poll thread
+# -- the only thread that touches the device -- between idle polls.
+BUTTONS = {"blackout": sfl.BUTTON_BLACKOUT, "solo": sfl.BUTTON_SOLO,
+           "ind1": sfl.BUTTON_IND1, "ind2": sfl.BUTTON_IND2}
+# Set from --allow-write in main(). Off by default: writing is refused (403) and the page's
+# buttons stay inert, since the server has no authentication and listens on every interface.
+write_enabled = False
+button_queue = queue.Queue()
 
 # Set from --artnet in main(): an artnet.ArtNetSender fed with every DMX snapshot, or None.
 artnet_sender = None
@@ -417,6 +428,13 @@ def poll_forever(stop_event):
                       f"read_timeouts={link.read_timeouts}", file=sys.stderr)
                 last_heartbeat = time.time()
 
+            while True:
+                try:
+                    code = button_queue.get_nowait()
+                except queue.Empty:
+                    break
+                link.press_button(code)
+
             if not link.write_header(0, 0, (0, 0, 0, 0)):
                 consecutive_write_fails += 1
                 if consecutive_write_fails > 20:
@@ -544,6 +562,27 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
+    def do_POST(self):
+        prefix = "/api/button/"
+        name = self.path[len(prefix):] if self.path.startswith(prefix) else None
+        if name not in BUTTONS:
+            self.send_response(404)
+            self.end_headers()
+            return
+        if not write_enabled:
+            self.send_response(403)
+            self.end_headers()
+            return
+        with state_lock:
+            connected = state["connected"]
+        if not connected:
+            self.send_response(503)
+            self.end_headers()
+            return
+        button_queue.put(BUTTONS[name])
+        self.send_response(204)
+        self.end_headers()
+
     def _serve_events(self):
         """Server-Sent Events: push the current state every time it changes (or at
         least once a second as a heartbeat), so the client never has to poll and
@@ -591,7 +630,7 @@ class QuietThreadingHTTPServer(ThreadingHTTPServer):
 
 
 def main():
-    global DEBUG, CAPTURE_PATH, artnet_sender
+    global DEBUG, CAPTURE_PATH, artnet_sender, write_enabled
     parser = argparse.ArgumentParser(
         description="Local web app showing live console state (physical faders + per-mode intensities).")
     parser.add_argument("--debug", action="store_true",
@@ -605,12 +644,20 @@ def main():
     parser.add_argument("--no-web", action="store_true",
                          help="Don't start the web server; just poll the console (use with "
                               "--debug, --capture and/or --artnet).")
+    parser.add_argument("--allow-write", action="store_true",
+                         help="Let the web page press console buttons (BlackOut, Solo, Ind 1/2). "
+                              "Off by default: the server has no authentication, so anyone who "
+                              "can reach its port could use it.")
     artnet.add_arguments(parser)
     args = parser.parse_args()
     if args.no_web and not (args.debug or args.capture or args.artnet is not None):
         parser.error("--no-web needs at least one of --debug, --capture, --artnet "
                      "(otherwise there is nothing to do)")
+    if args.allow_write and args.no_web:
+        parser.error("--allow-write needs the web page (drop --no-web)")
     DEBUG = args.debug
+    write_enabled = args.allow_write
+    update_state(write_enabled=write_enabled)
     CAPTURE_PATH = args.capture
     artnet_sender = artnet.sender_from_args(args, parser)
 

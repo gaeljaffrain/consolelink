@@ -514,6 +514,7 @@ h1 {
 }
 /* SOLO/BLACKOUT live inside Bumps'/Master's .name slot instead of standing alone: compact,
    full-width, with the label inside the light box itself rather than below it. */
+body.writable [data-button] { cursor: pointer; }
 .ind-button.ind-mini {
   width: 100%;
   height: 100%;
