@@ -36,10 +36,7 @@ tag = true
 tag_name = "v{new_version}"
 tag_message = "Version {new_version}"
 # Releases are cut from main only: aborts before any file is touched on another branch.
-allow_shell_hooks = true
-setup_hooks = [
-    '[ "$BVHOOK_BRANCH_NAME" = main ] || { echo "Releases are bumped from main only (on: ${BVHOOK_BRANCH_NAME:-detached HEAD})" >&2; exit 1; }',
-]
+setup_hooks = ["python scripts/require_main_branch.py"]
 
 [[tool.bumpversion.files]]
 filename = "src/consolelink/protocol.py"
