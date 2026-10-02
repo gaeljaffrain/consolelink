@@ -72,7 +72,7 @@ import time
 import usb.core
 import usb.util
 
-VERSION = "0.1.2"  # ConsoleLink release version (SemVer); change it with `bump-my-version bump`, not by hand
+VERSION = "0.1.3"  # ConsoleLink release version (SemVer); change it with `bump-my-version bump`, not by hand
 
 VENDOR_ID = 0x14D5
 PRODUCT_ID = 0x0201
