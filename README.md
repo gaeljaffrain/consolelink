@@ -22,20 +22,6 @@ And on a phone, where each row wraps to 6 columns:
 
 <img src="screenshots/mobile.png" width="300" alt="consolelink web app on a phone: the same controls with rows wrapped to 6 columns">
 
-## Contents
-
-| File | What it is |
-|---|---|
-| [`src/consolelink/protocol.py`](src/consolelink/protocol.py) | Shared library: USB framing, the idle-poll/announce/ack handshake, and decoders for every known message type. Everything else imports this rather than re-deriving the protocol. |
-| [`src/consolelink/app.py`](src/consolelink/app.py) | The program (the `consolelink` command): polls the console in a background thread and serves [`index.html`](src/consolelink/static/index.html) over Server-Sent Events, so a browser tab shows live values. With `--no-web` it only polls (logging changes with `--debug`, or sending Art-Net). |
-| [`src/consolelink/artnet.py`](src/consolelink/artnet.py) | Optional Art-Net output of the two DMX universes, enabled with `--artnet`. |
-| [`src/consolelink/static/index.html`](src/consolelink/static/index.html) | Static single-page UI for `consolelink`: intensity meters (INT A / INT B / INT DEV), physical faders, most important buttons and indicators, like BlackOut and Master, and a mirror of the console's two LCDs, plus a "DMX Outputs" tab showing both DMX universes (1024 channels) at once. |
-| [`src/consolelink/static/app.js`](src/consolelink/static/app.js) | Front-end logic for `index.html`: builds the meter grid, connects to the SSE stream, and renders each incoming state update. |
-| [`src/consolelink/static/style.css`](src/consolelink/static/style.css) | Styling for `index.html`: colours, the meter and indicator layout, the blinking-LED animations, and the breakpoints that reflow the page for phones. |
-| [`src/consolelink/static/favicon.svg`](src/consolelink/static/favicon.svg) | The browser tab icon. |
-| [`pyproject.toml`](pyproject.toml) | Packaging: makes `pip install .` install the package, its web files and the `consolelink` command; lists the dependencies, including the `dev` extra (`pytest`, `bump-my-version`). |
-| [`tests/`](tests/) | Decoder and server tests, replaying recorded console traffic from [`tests/fixtures/`](tests/fixtures/) -- no console needed. |
-
 ## Requirements
 
 - Python 3.10 or newer. macOS's built-in `python3` is older (3.9): install a current one, for
@@ -160,6 +146,22 @@ probing on connect.
 
 See [`protocol.py`](src/consolelink/protocol.py)'s module docstring for the full message-type breakdown
 (which types are decoded, which are known-but-not-yet decoded, and why).
+
+# For Developers
+
+## Contents
+
+| File | What it is |
+|---|---|
+| [`src/consolelink/protocol.py`](src/consolelink/protocol.py) | Shared library: USB framing, the idle-poll/announce/ack handshake, and decoders for every known message type. Everything else imports this rather than re-deriving the protocol. |
+| [`src/consolelink/app.py`](src/consolelink/app.py) | The program (the `consolelink` command): polls the console in a background thread and serves [`index.html`](src/consolelink/static/index.html) over Server-Sent Events, so a browser tab shows live values. With `--no-web` it only polls (logging changes with `--debug`, or sending Art-Net). |
+| [`src/consolelink/artnet.py`](src/consolelink/artnet.py) | Optional Art-Net output of the two DMX universes, enabled with `--artnet`. |
+| [`src/consolelink/static/index.html`](src/consolelink/static/index.html) | Static single-page UI for `consolelink`: intensity meters (INT A / INT B / INT DEV), physical faders, most important buttons and indicators, like BlackOut and Master, and a mirror of the console's two LCDs, plus a "DMX Outputs" tab showing both DMX universes (1024 channels) at once. |
+| [`src/consolelink/static/app.js`](src/consolelink/static/app.js) | Front-end logic for `index.html`: builds the meter grid, connects to the SSE stream, and renders each incoming state update. |
+| [`src/consolelink/static/style.css`](src/consolelink/static/style.css) | Styling for `index.html`: colours, the meter and indicator layout, the blinking-LED animations, and the breakpoints that reflow the page for phones. |
+| [`src/consolelink/static/favicon.svg`](src/consolelink/static/favicon.svg) | The browser tab icon. |
+| [`pyproject.toml`](pyproject.toml) | Packaging: makes `pip install .` install the package, its web files and the `consolelink` command; lists the dependencies, including the `dev` extra (`pytest`, `bump-my-version`). |
+| [`tests/`](tests/) | Decoder and server tests, replaying recorded console traffic from [`tests/fixtures/`](tests/fixtures/) -- no console needed. |
 
 ## Tests
 
