@@ -339,7 +339,7 @@ function rgbCss(color) {
 
 // Colors the console itself sends (bump LEDs, FADERS bars, Solo/BlackOut) and the page's
 // LED-matching palette (PALETTE_TOKENS below) all go through softenColor(). saturation: the
-// header's Soft <-> Native slider, 1 = the LED's own color, lower = softer.
+// settings' Soft <-> Native slider, 1 = the LED's own color, lower = softer.
 const SATURATION_KEY = "consolelink.saturation";
 let saturation = 0.6;
 try {
@@ -527,7 +527,7 @@ saturationInput.addEventListener("input", () => {
   if (lastState) render(lastState);
 });
 
-// Header "INT A/B" checkbox: INT DEV may be all that is needed, so the two 24-wide INT A/B rows
+// Settings "Show INT A/B" checkbox: INT DEV may be all that is needed, so the two 24-wide INT A/B rows
 // can be hidden. Display only -- they keep rendering while hidden. With no saved choice yet,
 // they start hidden on a phone in portrait (6 columns), where each one is 4 meter rows tall.
 const SHOW_INT_AB_KEY = "consolelink.showIntAB";
@@ -546,6 +546,21 @@ applyShowIntAb();
 showIntAbInput.addEventListener("change", () => {
   try { localStorage.setItem(SHOW_INT_AB_KEY, showIntAbInput.checked ? "1" : "0"); } catch (e) { /* not persisted */ }
   applyShowIntAb();
+});
+
+// Settings overlay, opened by the header gear; closed by its X, a click on the backdrop, or Escape.
+const settingsOverlay = document.getElementById("settings-overlay");
+const settingsBtn = document.getElementById("settings-btn");
+function setSettingsOpen(open) {
+  settingsOverlay.hidden = !open;
+  settingsBtn.setAttribute("aria-expanded", String(open));
+  if (open) document.getElementById("settings-close").focus(); else settingsBtn.focus();
+}
+settingsBtn.addEventListener("click", () => setSettingsOpen(settingsOverlay.hidden));
+document.getElementById("settings-close").addEventListener("click", () => setSettingsOpen(false));
+settingsOverlay.addEventListener("click", (ev) => { if (ev.target === settingsOverlay) setSettingsOpen(false); });
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && !settingsOverlay.hidden) setSettingsOpen(false);
 });
 
 // Pushed via Server-Sent Events rather than polled: every state change the server
