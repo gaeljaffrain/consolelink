@@ -56,11 +56,14 @@ function buildPhysicalFaderMeters() {
         <div class="track"><div class="fill" style="height:0%"></div></div>
         <div class="val">0</div>
       </div>
-      <div class="fader-light" id="physfader-${i}-light" data-bump="${i}"></div>
       <div class="name">
-        <div class="name-line"></div>
-        <div class="name-line"></div>
-        <div class="name-line"></div>
+        <div class="console-button" id="physfader-${i}-light" data-bump="${i}">
+          <div class="light">
+            <div class="name-line"></div>
+            <div class="name-line"></div>
+            <div class="name-line"></div>
+          </div>
+        </div>
       </div>`;
     row.appendChild(f);
   }
@@ -167,6 +170,12 @@ function setName(container, lines) {
   for (let i = 0; i < lineEls.length; i++) {
     lineEls[i].textContent = lines?.[i] || "";
   }
+  // Blank lines before the first and after the last used one are marked .edge, which a button
+  // hides so a 1- or 2-line name centers vertically; a blank line between two used ones stays.
+  const used = [...lineEls].map(el => el.textContent.trim() !== "");
+  const first = used.indexOf(true);
+  const last = used.lastIndexOf(true);
+  lineEls.forEach((el, i) => el.classList.toggle("edge", i < first || i > last));
 }
 
 // Physical Faders' per-fader label depends on the fader mode. INT A/B/DEV and PARAM 1/2 use
@@ -389,6 +398,24 @@ function setLightColors(el, light) {
   el.style.setProperty("--color-b", b ? softenColor(b) : "");
 }
 
+// Text color for a label drawn over the LED color rgb: the page's dark text on a bright LED, its
+// light text on a dim one (an INT fader's LED dims with the fader, and MEMS LEDs are dim), by
+// whichever has the higher WCAG contrast. "" (CSS fallback) while the LED is unknown.
+const luminance = rgb => {
+  const [r, g, b] = rgb.map(srgbToLinear);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+function onLightText(light) {
+  const c = light && (light.blinking ? light.color_a : light.color);
+  if (!c) return "";
+  const css = getComputedStyle(document.documentElement);
+  const DARK_TEXT_LUM = luminance(hexToRgb(css.getPropertyValue("--darktext").trim(), "--darktext"));
+  const LIGHT_TEXT_LUM = luminance(hexToRgb(css.getPropertyValue("--text").trim(), "--text"));
+  const y = luminance(c);
+  const contrast = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  return contrast(y, DARK_TEXT_LUM) >= contrast(y, LIGHT_TEXT_LUM) ? "var(--darktext)" : "var(--text)";
+}
+
 // The FADERS bar takes only the hue of its bump LED, at full brightness: in INT modes the LED
 // dims with the fader, which would otherwise make a low fader's bar near-black. "" (CSS
 // fallback) while the LED is unknown or dark.
@@ -425,9 +452,11 @@ function setPhysicalFader(i, value, light, mode, labels, memsPage) {
   const meterEl = document.getElementById("physfader-" + i);
   setBar(meterEl, value, true);
   setName(meterEl, physicalFaderLabelLines(mode, i, labels, memsPage));
-  const lightEl = document.getElementById("physfader-" + i + "-light");
-  lightEl.classList.toggle("blinking", !!light?.blinking);
-  setLightColors(lightEl, light);
+  const dark = light && !Math.max(...(light.blinking ? [...light.color_a, ...light.color_b] : light.color));
+  setIndicator(document.getElementById("physfader-" + i + "-light"),
+    !light ? null : dark ? "off" : light.blinking ? "blinking" : "on", light, true);
+  document.getElementById("physfader-" + i + "-light").style
+    .setProperty("--on-text", dark ? "" : onLightText(light));
   meterEl.style.setProperty("--bar-color", barColor(light));
 }
 
@@ -464,6 +493,8 @@ function render(state) {
   const modeClass = (modeKnown && MODE_PILL_CLASS[state.fader_mode]) || "";
   pill.className = "mode-pill " + modeClass + (state.fader_mode_confirmed ? "" : " unconfirmed");
   pill.textContent = modeKnown ? state.fader_mode : "unknown";
+  modeSelect.className = pill.className;
+  if (document.activeElement !== modeSelect) modeSelect.value = modeKnown ? state.fader_mode : "";
 
   MODES.forEach(mode => {
     const badge = document.querySelector("#section-" + CSS.escape(mode) + " .active-badge");
@@ -514,6 +545,7 @@ function render(state) {
   lastUpdate = state.last_update;
 }
 
+const modeSelect = document.getElementById("mode-select");
 const saturationInput = document.getElementById("saturation");
 // Clamped to the slider's own range, so a value saved under an older range can't go past it.
 saturation = Math.min(Math.max(saturation, parseFloat(saturationInput.min)),
@@ -629,6 +661,24 @@ document.addEventListener("visibilitychange", () => { if (document.hidden) relea
 // MEMS page select (SmartSoft's PAGE dropdown), shown only in MEMS mode (see style.css); without
 // --allow-write the read-only badge shows the page instead. The console confirms with its own
 // page number, so both follow state.mems_page.
+// Fader-mode select (the FADERS title's mode pill, with --allow-write): taps the console's
+// matching mode button, and the console's own type=0x17 reply is what moves the select -- so if
+// the console doesn't switch, it falls back to the real mode a moment later.
+const MODE_BUTTONS = {
+  "INT A": "mode-int-a", "INT B": "mode-int-b", "INT DEV": "mode-int-dev",
+  "PARAM 1": "mode-param-1", "PARAM 2": "mode-param-2", "MEMS": "mode-mems",
+};
+const unknownOption = new Option("unknown", "");
+unknownOption.disabled = true;
+modeSelect.add(unknownOption);
+Object.keys(MODE_BUTTONS).forEach(mode => modeSelect.add(new Option(mode, mode)));
+modeSelect.addEventListener("change", () => {
+  if (!document.body.classList.contains("writable")) return;
+  fetch(`/api/button/${MODE_BUTTONS[modeSelect.value]}`, { method: "POST" }).catch(() => {});
+  modeSelect.blur();
+  setTimeout(() => { if (lastState) render(lastState); }, 1000);
+});
+
 const pageSelect = document.getElementById("mems-page");
 for (let p = 1; p <= 12; p++) pageSelect.add(new Option(String(p), String(p)));
 pageSelect.addEventListener("change", () => {

@@ -189,6 +189,12 @@ h1 {
   border: none;
   white-space: normal;
 }
+/* With --allow-write (body.writable) the pill is a drop-down that switches the console's fader
+   mode; otherwise the plain badge. */
+#mode-select { display: none; font-family: inherit; cursor: pointer; }
+#mode-select option { background: var(--panel); color: var(--text); }
+body.writable #mode-select { display: inline-block; }
+body.writable #mode-pill { display: none; }
 .section-title .mode-pill.active-A,
 .section-title .mode-pill.active-B,
 .section-title .mode-pill.active-D,
@@ -444,7 +450,9 @@ h1 {
 /* Solo, Blackout and the Independents are toggle buttons on the console, not faders: a light
    that turns on, not a bar that fills. They sit in the .name slot under Master/Bumps/IND,
    full-width, with the label inside the light box. */
-body.writable [data-button] { cursor: pointer; }
+body.writable [data-button],
+body.writable [data-bump] { cursor: pointer; }
+body.writable [data-bump] { touch-action: none; user-select: none; }
 .console-button {
   display: flex;
   flex-direction: column;
@@ -475,7 +483,9 @@ body.writable [data-button] { cursor: pointer; }
 #btn-solo { --on-color: var(--bumps); --on-text: var(--darktext); }
 #btn-blackout { --on-color: var(--master); --on-text: var(--text); }
 #btn-ind1,
-#btn-ind2 { --on-color: var(--accent-green); --on-text: var(--darktext); }
+#btn-ind2,
+#section-physical .console-button { --on-color: var(--accent-green); --on-text: var(--darktext); }
+#section-physical.mems .console-button { --on-color: var(--accent-red); }
 /* Active: the console's own LED color (--color-a/--color-b, set in app.js), else --on-color
    before the first type=0x16. The outline is a shape cue so on and blinking don't rely on
    colour alone: a solid ring when on, a dashed one while blinking. */
@@ -499,39 +509,22 @@ body.writable [data-button] { cursor: pointer; }
   outline: 2px dashed currentColor;
   outline-offset: -4px;
 }
-/* IND 1/2 show the Independent's name as 3 small rows instead of a single label. */
+/* IND 1/2 and the faders' Bump buttons show a name as 3 small rows instead of a single label. */
 #btn-ind1 .light,
-#btn-ind2 .light {
+#btn-ind2 .light,
+#section-physical .console-button .light {
   flex-direction: column;
   justify-content: center;
   gap: 0;
 }
 #btn-ind1 .light .name-line,
-#btn-ind2 .light .name-line {
+#btn-ind2 .light .name-line,
+#section-physical .console-button .light .name-line {
   line-height: 1.15;
   height: 1.15em;
   color: inherit;
 }
-/* The Physical Faders row's Bump LED: no text, just the console's own color (--color-a/--color-b,
-   see setLightColors() in app.js) -- solid once the fader has caught its stored value, blinking
-   until then. Sits in a .meter's .name slot. */
-.fader-light {
-  width: 100%;
-  height: 16px;
-  margin-top: 4px;
-  border-radius: 3px;
-  background: var(--color-a, var(--well));
-  border: 1px solid var(--grid);
-}
-body.writable .fader-light { cursor: pointer; touch-action: none; user-select: none; }
-/* Color-agnostic: each of the 24 LEDs sets its own --color-a/--color-b. steps(1) for a flash. */
-@keyframes blink-fader {
-  0%, 49%   { background: var(--color-a); }
-  50%, 100% { background: var(--color-b); }
-}
-.fader-light.blinking {
-  animation: blink-fader var(--blink-duration) steps(1) infinite;
-}
+.console-button .name-line.edge { display: none; }
 
 /* The MEMS page, in MEMS mode only (app.js puts .mems on #section-physical): a list when the
    server allows writing (body.writable), else a read-only badge. */
@@ -566,7 +559,8 @@ body:not(.writable) .mems .page-badge { display: block; }
   /* IND 1/2's name sits inside the button's own border and padding, so it has ~6px less than
      an intensity name -- a full 6-character line needs the smaller font at ~44px columns. */
   #btn-ind1 .light .name-line,
-  #btn-ind2 .light .name-line { font-size: 9px; }
+  #btn-ind2 .light .name-line,
+  #section-physical .console-button .light .name-line { font-size: 9px; }
   .meter .value-row { gap: 3px; }
   .meter .track { width: 10px; flex: 0 0 10px; }
   .meter .val { font-size: 18px; }
