@@ -5,8 +5,8 @@
   --grid: #2a2d34;
   --text: #d9dbe1;
   --darktext: #0b0c0e;
+  --well: #0e0f12;  /* the dark recess of a bar track or an LED swatch */
   --dim: #9498a6;
-  --accent: #4fb0ff;
   --ok: #5cff8f;
   --bad: #ff5c5c;
 
@@ -48,8 +48,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   padding: 20px 24px 40px;
 }
-/* Title left, version right on the same baseline; on a narrow screen the version wraps under
-   the title and stays right-aligned. */
+/* Title left, settings gear right. */
 .title-row {
   display: flex;
   flex-wrap: wrap;
@@ -64,10 +63,64 @@ h1 {
   margin: 0;
   letter-spacing: 0.02em;
 }
-.version {
+.gear-btn {
+  margin-left: auto;
+  align-self: center;
+  display: flex;
+  padding: 4px;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: var(--dim);
+  cursor: pointer;
+}
+.gear-btn:hover, .gear-btn[aria-expanded="true"] { color: var(--text); background: var(--panel); }
+/* Settings overlay: a dimmed backdrop over the page with a centred panel. */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 60px 16px 16px;
+  background: rgba(0, 0, 0, 0.6);
+}
+.overlay[hidden] { display: none; }
+.settings-panel {
+  width: 100%;
+  max-width: 380px;
+  box-sizing: border-box;
+  padding: 16px 20px 14px;
+  background: var(--panel);
+  border: 1px solid var(--grid);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.settings-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.close-btn {
+  background: none;
+  border: 0;
+  color: var(--dim);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.close-btn:hover { color: var(--text); }
+.setting { padding: 8px 0; }
+.settings-foot {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--grid);
   color: var(--dim);
   font-size: 12px;
-  margin-left: auto;
+  text-align: right;
 }
 .status-row {
   display: flex;
@@ -77,29 +130,16 @@ h1 {
   font-size: 13px;
   flex-wrap: wrap;
 }
-/* The page's controls, as one block pushed to the right end of .status-row -- on a narrow
-   screen they wrap as a group, still right-aligned, rather than one by one. */
-.controls {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px 18px;
-  margin-left: auto;
-}
-.sat-control {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--dim);
-}
-.sat-control input { width: 110px; }
+.sat-control,
 .int-ab-control {
   display: flex;
   align-items: center;
   gap: 6px;
   color: var(--dim);
 }
+.sat-control { justify-content: space-between; }
+.sat-slider { display: flex; align-items: center; gap: 6px; }
+.sat-control input { width: 110px; }
 .status {
   display: flex;
   align-items: center;
@@ -124,33 +164,44 @@ h1 {
   box-shadow: 0 0 6px var(--bad);
 }
 .dot.ok { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
-/* Sits under the FADERS section-title text (a 46px-wide column, see .section.section-row
-   .section-title) -- styled to match .section-title .active-badge (the INT A/B/DEV rows'
-   "Active" badge) since they're both small status badges living in the same section-title
-   spot: solid fill + dark text, 4px radius, 700 weight. Neutral grey/dim fill when the mode
-   is still unknown (no active-* class yet), same as the rest of the UI's unknown-state
-   color; solid accent-green/red once a mode is confirmed. */
+/* Sits under the FADERS section-title text, styled like the INT rows' "Active" badge. Neutral
+   grey while the mode is unknown, solid green (red for MEMS) once it is confirmed. */
 .mode-pill.unconfirmed { opacity: 0.55; font-style: italic; }
-.section-title .mode-pill {
+/* The small status badges in a .section-title (the mode pill, the INT rows' "Active" badge, the
+   MEMS page badge) share one look; the pill and the page badge are neutral grey by default. */
+.section-title .active-badge,
+.section-title .mode-pill,
+.section-title .page-badge {
   padding: 1px 6px;
   font-size: 10px;
   font-weight: 700;
-  border: none;
   border-radius: 4px;
-  text-align: center;
-  white-space: normal;
   text-transform: none;
   letter-spacing: 0;
+}
+.section-title .mode-pill,
+.section-title .page-badge {
+  text-align: center;
   background: var(--grid);
   color: var(--dim);
 }
+.section-title .mode-pill {
+  border: none;
+  white-space: normal;
+}
+/* With --allow-write (body.writable) the pill is a drop-down that switches the console's fader
+   mode; otherwise the plain badge. */
+#mode-select { display: none; font-family: inherit; cursor: pointer; }
+#mode-select option { background: var(--panel); color: var(--text); }
+body.writable #mode-select { display: inline-block; }
+body.writable #mode-pill { display: none; }
 .section-title .mode-pill.active-A,
 .section-title .mode-pill.active-B,
 .section-title .mode-pill.active-D,
 .section-title .mode-pill.active-P1,
 .section-title .mode-pill.active-P2 {
   background: var(--accent-green);
-  color: #0b0c0e;
+  color: var(--darktext);
 }
 .section-title .mode-pill.active-M {
   background: var(--accent-red);
@@ -175,14 +226,8 @@ h1 {
   gap: 8px;
 }
 .section-title .active-badge {
-  font-size: 10px;
   background: var(--accent-green);
-  color: #0b0c0e;
-  border-radius: 4px;
-  padding: 1px 6px;
-  letter-spacing: 0;
-  text-transform: none;
-  font-weight: 700;
+  color: var(--darktext);
 }
 .section.dim .section-title { opacity: 0.6; }
 
@@ -205,40 +250,26 @@ h1 {
 }
 .section.section-row .intensity-row,
 .section.section-row .special-row {
-  /* flex-basis 0, not auto: with auto, the outer flex layout would need this item's own
-     intrinsic/preferred size before it can assign a width -- for .special-row specifically,
-     that intrinsic-size pass needs to resolve its grid-template-columns' percentage-based
-     tracks, which in turn need .special-row's own (not-yet-known) width. That circularity is
-     what collapsed MASTER/BUMPS/IND 1/IND 2 to slivers: an indefinite percentage in that
-     situation resolves to 0 per spec. flex-basis:0 sidesteps it entirely -- flex-grow:1 just
-     takes 100% of the remaining space directly, with no intrinsic-size measurement needed. */
+  /* flex-basis 0, not auto: auto would need .special-row's intrinsic width, which its
+       percentage-based grid tracks can't resolve yet (they would collapse to 0). */
   flex: 1 1 0;
   min-width: 0;
 }
 .intensity-row {
   display: grid;
-  /* minmax(0, 1fr), not plain 1fr: a bare 1fr track won't shrink below its content's natural
-     min-content width, which defeats the narrow-width wrap below -- minmax(0, 1fr) is what
-     actually lets columns compress instead of overflowing the row. */
+  /* minmax(0, 1fr), not 1fr: lets columns shrink below their content's width. */
   grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
   gap: var(--gap);
   align-items: end;
-  /* Safety net: if a row is still too tight for the fixed-size badge/bar/value content to
+  /* Safety net: if a row is still too tight for the fixed-size label/bar/value content to
      shrink into, scroll horizontally instead of silently overflowing the page. */
   overflow-x: auto;
 }
-/* A caption bar visually tying two or more adjacent indicators together (e.g. "Focus" under
-   Pan+Tilt, "INDEPENDENTS" under IND 1/IND 2) -- generic, reusable in any CSS-grid row
-   (.intensity-row's PARAM 1/2 fader labels via computeLabelGroups() in app.js; .special-row's
-   static IND 1/IND 2 grouping). A .group-bar is just another item in that same grid, given an
-   explicit `grid-column: start / end` (in JS for the dynamic case, inline for the static one).
-   The static IND 1/IND 2 caption still relies on plain auto-placement -- no grid-row of its
-   own, so it lands in row 2 since row 1 is already fully occupied. The dynamic PARAM 1/2
-   group-bars don't: renderGroupBars()/projectGroupSegments() in app.js always set an explicit
-   grid-row themselves (see those functions for why plain auto-placement isn't enough once a
-   row wraps into several blocks). Kept visually light (a thin top rule + small caption) rather than a
-   heavy filled bar, to read as "these belong together" without competing with the meters
-   themselves. */
+/* A caption tying adjacent indicators together ("Focus" under Pan+Tilt, "INDEPENDENTS" under
+   IND 1/IND 2): just another item in the row's grid, given an explicit `grid-column: start / end`
+   (set in JS for the PARAM labels, inline for the static ones). The static captions auto-place
+   into row 2; the dynamic ones set their own grid-row (see renderGroupBars() in app.js). Kept
+   light -- a thin top rule and a small caption -- so it doesn't compete with the meters. */
 .group-bar {
   grid-column: 1 / -1;
   margin-top: 4px;
@@ -258,34 +289,29 @@ h1 {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
   min-width: 0;
-  flex: 1 1 0;
-  height: auto;
   border: 1px solid var(--grid);
   border-radius: 4px;
   padding: 4px;
-  /* At narrow widths a column can compress below its badge/value text's natural
+  /* At narrow widths a column can compress below its label/value text's natural
      size -- clip rather than let it bleed into neighboring columns. */
   overflow: hidden;
 }
+/* The bar's track sits left of the value readout in a .value-row. */
 .meter .track {
-  width: 100%;
+  width: 16px;
+  flex: 0 0 16px;
   height: 60px;
-  background: #0e0f12;
+  background: var(--well);
   border: 1px solid var(--grid);
   border-radius: 4px;
   display: flex;
   align-items: flex-end;
   overflow: hidden;
   position: relative;
-  margin-top: 0;
-  flex-shrink: 0;
 }
 .meter .fill {
   width: 100%;
-  background: transparent;
-  height: 0%;
   transition: height 80ms linear;
 }
 .meter.nonzero .fill { background: var(--accent-green); }
@@ -295,47 +321,27 @@ h1 {
 #section-physical .meter .val { color: var(--bar-color, var(--accent-green)); }
 #section-physical.mems .meter.nonzero .fill { background: var(--bar-color, var(--accent-red)); }
 #section-physical.mems .meter .val { color: var(--bar-color, var(--accent-red)); }
-.meter .val {
-  font-size: 10px;
-  color: var(--accent-green);
-  font-variant-numeric: tabular-nums;
-  line-height: 1.1;
-  flex-shrink: 0;
-  display: inline-block;
-  margin-top: 4px;
-  height: 1.1em;
-}
-.meter .number,
-.meter .name {
-  font-size: 9px;
-  color: var(--dim);
-  line-height: 1.2;
+/* A meter is its label as a header above a narrow bar, with a large value readout next to it.
+   The LCDs' header label (.lcd-label) has the same look. */
+.meter .meter-label,
+.lcd-label {
+  font-weight: 700;
+  color: var(--text);
+  background: var(--grid);
+  border-radius: 4px 4px 0 0;
+  line-height: 1.5;
   text-align: center;
+  margin-bottom: 4px;
+}
+.meter .meter-label {
+  font-size: 15px;
   display: inline-block;
   width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.meter .number {
-  height: 1.2em;
-}
-
-/* INT A/B/DEV intensity meters and Master/Bumps (.special-meter) share this compact layout:
-   the number/label as a header above a narrow bar, and a large value readout next to it. */
-.intensity-row .meter .number,
-.special-meter .number {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text);
-  background: var(--grid);
-  border-radius: 4px 4px 0 0;
-  height: auto;
-  line-height: 1.5;
-  margin-bottom: 4px;
-}
-.intensity-row .meter .value-row,
-.special-meter .value-row {
+.meter .value-row {
   display: flex;
   align-items: flex-end;
   justify-content: flex-start;
@@ -343,50 +349,39 @@ h1 {
   width: 100%;
   height: 60px;
 }
-.intensity-row .meter .track,
-.special-meter .track {
-  width: 16px;
-  flex: 0 0 16px;
-}
-.intensity-row .meter .val,
-.special-meter .val {
+.meter .val {
   font-size: 22px;
   font-weight: 700;
   color: var(--accent-green);
-  height: auto;
-  margin-top: 0;
+  font-variant-numeric: tabular-nums;
   line-height: 1;
   align-self: center;
   flex: 1 1 auto;
   text-align: center;
 }
 
-/* MASTER/BUMPS is longer than a 1-2 digit intensity number, so it gets a smaller badge font
-   that wraps instead of the numeric badges' nowrap+ellipsis truncation. */
-.special-meter .number {
+/* MASTER/BUMPS is longer than a 1-2 digit intensity number, so it gets a smaller label font
+   that wraps instead of the numeric labels' nowrap+ellipsis truncation. */
+.special-meter .meter-label {
   font-size: 10px;
   white-space: normal;
 }
-/* The console's own name field is 3 short lines (6/6/5 chars) -- .name is
-   just a column of 3 .name-line rows, each rendered exactly as the console lays it out
-   rather than word-wrapping one joined string. Always exactly 3 rows (blank ones included),
-   so every meter column's name area is the same height regardless of how many lines that
-   particular item's name actually uses. */
+/* The console's name field is 3 short lines (6/6/5 chars): a column of 3 .name-line rows, each
+   rendered as the console lays it out, blank ones included, so every name area has the same
+   height. */
 .meter .name {
   display: flex;
   flex-direction: column;
   width: 100%;
   margin-top: 4px;
-  /* Explicit, not just "3 .name-line rows add up to this" -- BLACK OUT/SOLO (under Master/
-     Bumps) only ever hold a single line, so they need this container's height pinned to the
-     same 3-line total (3 * 13px) rather than shrinking to fit their own shorter content. */
+  text-align: center;  /* inherited by SOLO/BLACKOUT's wrapped label */
+  overflow: hidden;
+  /* Pinned to the 3-line total (3 * 13px): BLACK OUT/SOLO only hold one line. */
   height: 39px;
 }
-/* Every name/label in this row (24-cell intensity names, IND 1/2 names, SOLO/BLACKOUT) shares
-   this font size and weight -- one shared rule instead of repeating the same two values in
-   each context below, which only differ in line-height/height/color/wrapping. */
+/* One font size and weight for every name and label here (names, IND 1/2, SOLO/BLACKOUT). */
 .name-line,
-.ind-button.ind-mini .light {
+.console-button .light {
   font-size: 10px;
   font-weight: 600;
 }
@@ -400,40 +395,24 @@ h1 {
   text-overflow: clip;
 }
 
-/* CSS grid, not flex: lets MASTER/BUMPS/IND 1/IND 2/LIVE/NEXT share the exact same "append a
-   .group-bar with an explicit grid-column, no grid-row" mechanism as .intensity-row (see
-   .group-bar above) for the "INDEPENDENTS" and "CROSSFADER" captions -- a plain sibling
-   .group-bar auto-places into row 2 since row 1 is already fully occupied by the 6 meters, no
-   wrapper element needed.
-   (An earlier version wrapped IND 1/IND 2 in an extra flex container and passed their shared
-   width down via a CSS custom property -- broken, because a custom property's "%" is NOT
-   resolved at the element that declares it; it stays live text substituted at the point of
-   actual use, so it resolved against the wrapper's own near-empty width instead of
-   .special-row's, collapsing both to a sliver. Direct grid items sidestep that entirely.) */
+/* CSS grid, not flex: MASTER/BUMPS/IND 1/IND 2/LIVE/NEXT then share the .intensity-row mechanism
+   for the "INDEPENDENTS" and "CROSSFADER" captions -- a sibling .group-bar with an explicit
+   grid-column auto-places into row 2, since row 1 is full of the 6 meters. */
 .special-row {
   display: grid;
-  /* One .intensity-row column's width (same --cols/--gap, so the same width at every
-     breakpoint). Only used right here, in .special-row's own grid-template-columns, so its "%"
-     resolves against .special-row. */
+  /* One .intensity-row column's width (same --cols/--gap). Declared here so its "%" resolves
+       against .special-row. */
   --col: calc((100% - (var(--cols) - 1) * var(--gap)) / var(--cols));
   /* 6 meter tracks, a spacer taking the rest of the row, then 6 more tracks for the two LCDs
      (3 each -- half of a phone's 6 columns, where they sit side by side below the meters). */
   grid-template-columns: repeat(6, var(--col)) minmax(0, 1fr) repeat(6, var(--col));
   gap: var(--gap);
 }
-/* No width rule on .special-meter itself: the grid track above already sizes each column
-   correctly, and a grid item stretches to fill its track by default. An explicit width here
-   would be actively wrong under a grid parent, not just redundant -- "%" in a grid ITEM's own
-   width resolves against its grid CELL, not the container, so `calc((100% - 138px) / 24)`
-   would compute against a ~63px cell instead of .special-row's full width, going negative
-   (clamped ~0). That's exactly what broke MASTER/BUMPS/IND 1/IND 2 into slivers even after
-   fixing the .special-row circular-sizing issue below -- confirmed by measuring the actual
-   rendered grid-template-columns (63.3px per track, correct) vs. the item boxes (10px, wrong)
-   with Playwright before removing this. */
-/* The console's two 2x20 LCDs, at the right like on the console's top right, each spanning
-   three meter columns and both grid rows (meters + INDEPENDENTS/CROSSFADER captions). Counted
-   from the right edge, so they stay put with or without the spacer track. On a phone in
-   portrait they move below the meters instead (see the end of this file). */
+/* No width on .special-meter: the grid track sizes it, and a "%" width on a grid item resolves
+   against its cell, not the row. */
+/* The console's two 2x20 LCDs, top right like on the console: three meter columns each, both
+   grid rows. Counted from the right edge, so they stay put with or without the spacer track.
+   On a phone in portrait they move below the meters (end of this file). */
 #lcd-1 { grid-column: -7 / -4; }
 #lcd-2 { grid-column: -4 / -1; }
 .lcd {
@@ -447,22 +426,11 @@ h1 {
   border-radius: 6px;
   padding: 4px 4px 6px;
 }
-/* Header badge, same look as MASTER/BUMPS's .number above their meters. */
-.lcd-label {
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--text);
-  background: var(--grid);
-  border-radius: 4px 4px 0 0;
-  line-height: 1.5;
-  text-align: center;
-  margin-bottom: 4px;
-}
-/* white-space: pre keeps the console's own column alignment (runs of spaces); the fixed 20ch
-   width keeps an empty or placeholder panel the same size as a filled one. The panel's width
-   is set by the grid, not the text, so the font scales to fit 20 characters in it (a
-   monospace character is ~0.6em wide, so 20ch ~ 12em; 12px kept free for the side margins),
-   up to 13px. */
+/* Header label: the look it shares with the meters' labels is above (.meter-label). */
+.lcd-label { font-size: 10px; }
+/* white-space: pre keeps the console's column alignment; the fixed 20ch width keeps an empty
+   panel the same size as a filled one. The font scales to fit 20 monospace characters in the
+   panel's width (~0.6em each, 12px kept for the side margins), up to 13px. */
 .lcd-line {
   width: 20ch;
   margin: 0 auto;
@@ -476,146 +444,96 @@ h1 {
 .lcd.placeholder .lcd-line { opacity: 0.5; }
 .special-meter .fill.master { background: var(--master); }
 .special-meter .fill.bumps { background: var(--bumps); }
-.special-meter .fill.ind,
-.special-meter .fill.xfade { background: var(--accent-green); }
 #fader-master .val { color: var(--master); }
 #bumps .val { color: var(--bumps); }
-#ind1 .val,
-#ind2 .val { color: var(--accent-green); }
 
-.placeholder .track { display: flex; align-items: center; justify-content: center; }
-.placeholder .track::after {
-  content: "?";
-  color: var(--dim);
-  font-size: 20px;
-}
-
-/* Independents are toggle/bump buttons on the console (per the manual), not faders --
-   rendered as a light that turns on, not a bar that fills. */
-.ind-button {
+/* Solo, Blackout and the Independents are toggle buttons on the console, not faders: a light
+   that turns on, not a bar that fills. They sit in the .name slot under Master/Bumps/IND,
+   full-width, with the label inside the light box. */
+body.writable [data-button],
+body.writable [data-bump] { cursor: pointer; }
+body.writable [data-bump] { touch-action: none; user-select: none; }
+.console-button {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  width: 60px;
-}
-.ind-button .light {
-  width: 44px;
-  height: 44px;
-  border-radius: 8px;
-  background: #0e0f12;
-  border: 1px solid var(--grid);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--dim);
-}
-/* SOLO/BLACKOUT live inside Bumps'/Master's .name slot instead of standing alone: compact,
-   full-width, with the label inside the light box itself rather than below it. */
-.ind-button.ind-mini {
+  gap: 0;
   width: 100%;
   height: 100%;
-  gap: 0;
 }
-.ind-button.ind-mini .light {
+.console-button .light {
   width: 100%;
   height: 100%;
   min-height: 0;
   border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   letter-spacing: -0.03em;
   line-height: 1.15;
   padding: 1px;
   white-space: normal;
-  /* Inactive: same background as the .number badge above the bar. */
+  /* Inactive: same background as the .meter-label above the bar. */
   background: var(--grid);
-  border-color: var(--grid);
+  border: 1px solid var(--grid);
   color: var(--dim);
 }
-/* Active: the console's own LED color (--color-a/--color-b, set in app.js) -- white for SOLO,
-   blue for BLACKOUT -- falling back to the page's colors before the first type=0x16. Glow and
-   text stay the page's own, for contrast. IDs so these beat the generic .ind-button.on rules. */
-#ind-solo.on .light {
-  background: var(--color-a, var(--bumps));
-  border-color: var(--color-a, var(--bumps));
-  /* Text color, not button color: white background needs dark text for contrast, distinct
-     from BLACKOUT's blue background below which needs the opposite. */
-  color: var(--darktext);
-  box-shadow: 0 0 10px var(--bumps);
+/* Each button names its on-state colors: --on-color is the background and glow, --on-text the
+   text, picked for contrast (dark on SOLO's white and the Independents' green). */
+#btn-solo { --on-color: var(--bumps); --on-text: var(--darktext); }
+#btn-blackout { --on-color: var(--master); --on-text: var(--text); }
+#btn-ind1,
+#btn-ind2,
+#section-physical .console-button { --on-color: var(--accent-green); --on-text: var(--darktext); }
+#section-physical.mems .console-button { --on-color: var(--accent-red); }
+/* Active: the console's own LED color (--color-a/--color-b, set in app.js), else --on-color
+   before the first type=0x16. The outline is a shape cue so on and blinking don't rely on
+   colour alone: a solid ring when on, a dashed one while blinking. */
+.console-button.on .light {
+  background: var(--color-a, var(--on-color));
+  border-color: var(--color-a, var(--on-color));
+  color: var(--on-text);
+  box-shadow: 0 0 10px var(--on-color);
+  outline: 2px solid currentColor;
+  outline-offset: -4px;
 }
-#ind-blackout.on .light {
-  background: var(--color-a, var(--master));
-  border-color: var(--color-a, var(--master));
-  color: var(--text);
-  box-shadow: 0 0 10px var(--master);
-}
-/* Blinking: hard-alternates between the console's two LED colors (--color-a/--color-b), matching
-   the real console's flashing LED -- e.g. Solo blinks white/off while a Bump button isolates a
-   channel; BlackOut blinks light-blue/off (37 37 ff / 0a 0a 0a) when Master is pulled below full
-   while BlackOut itself is off. Falls back to the page's on-color / inactive background.
-   steps(1) for a discrete flash, not a smooth fade. */
-@keyframes blink-solo {
-  0%, 49%   { background: var(--color-a, var(--bumps)); border-color: var(--color-a, var(--bumps)); color: var(--darktext); box-shadow: 0 0 10px var(--bumps); }
+/* Blinking: hard-alternates between the console's two LED colors (--color-a/--color-b), like its
+   flashing LED -- e.g. Solo while a Bump isolates a channel, BlackOut when Master is below full.
+   steps(1) for a discrete flash. */
+@keyframes blink-button {
+  0%, 49%   { background: var(--color-a, var(--on-color)); border-color: var(--color-a, var(--on-color)); color: var(--on-text); box-shadow: 0 0 10px var(--on-color); }
   50%, 100% { background: var(--color-b, var(--grid)); border-color: var(--color-b, var(--grid)); color: var(--dim); box-shadow: none; }
 }
-@keyframes blink-blackout {
-  0%, 49%   { background: var(--color-a, var(--master)); border-color: var(--color-a, var(--master)); color: var(--text); box-shadow: 0 0 10px var(--master); }
-  50%, 100% { background: var(--color-b, var(--grid)); border-color: var(--color-b, var(--grid)); color: var(--dim); box-shadow: none; }
+.console-button.blinking .light {
+  animation: blink-button var(--blink-duration) steps(1) infinite;
+  outline: 2px dashed currentColor;
+  outline-offset: -4px;
 }
-#ind-solo.blinking .light { animation: blink-solo var(--blink-duration) steps(1) infinite; }
-#ind-blackout.blinking .light { animation: blink-blackout var(--blink-duration) steps(1) infinite; }
-/* IND 1/2's button shows the Independent's name as 3 lines, same as the intensity rows,
-   instead of SOLO/BLACKOUT's single static label -- override the centered
-   single-line layout inherited from .ind-button .light with a column of small rows. */
-#ind-1 .light,
-#ind-2 .light {
+/* IND 1/2 and the faders' Bump buttons show a name as 3 small rows instead of a single label. */
+#btn-ind1 .light,
+#btn-ind2 .light,
+#section-physical .console-button .light {
   flex-direction: column;
   justify-content: center;
   gap: 0;
 }
-#ind-1 .light .name-line,
-#ind-2 .light .name-line {
+#btn-ind1 .light .name-line,
+#btn-ind2 .light .name-line,
+#section-physical .console-button .light .name-line {
   line-height: 1.15;
   height: 1.15em;
   color: inherit;
 }
-#ind-1.on .light,
-#ind-2.on .light {
-  background: var(--accent-green);
-  border-color: var(--accent-green);
-  /* Pale green background, same as SOLO's white -- needs dark text, not BLACKOUT's light. */
-  color: var(--darktext);
-  box-shadow: 0 0 10px var(--accent-green);
-}
-/* Shape cues, so on and blinking don't rely on colour alone: a solid ring when on, a dashed one
-   while blinking. currentColor is the text colour each state already picks for contrast with
-   its own background; the negative offset keeps the ring inside the box. */
-.ind-button.on .light       { outline: 2px solid currentColor;  outline-offset: -4px; }
-.ind-button.blinking .light { outline: 2px dashed currentColor; outline-offset: -4px; }
-/* The Physical Faders row's light swatch: no text, just a color (solid,
-   intensity-proportional once caught; blinking between two brightness levels while the
-   physical fader hasn't caught its stored value yet). Colors are the console's own RGB
-   (--color-a/--color-b, set via setLightColors() in app.js).
-   Sized to sit in a .meter's .name slot, same 24-per-row grid as the intensity rows above. */
-.fader-light {
-  width: 100%;
-  height: 16px;
-  margin-top: 4px;
-  border-radius: 3px;
-  background: var(--color-a, #0e0f12);
-  border: 1px solid var(--grid);
-}
-/* Driven by --color-a/--color-b custom properties set in JS per fader -- every one of the 24
-   faders can show a different wire color, so the animation itself has to be color-agnostic.
-   steps(1) for a discrete flash, matching the real console's LED, not a smooth fade. */
-@keyframes blink-fader {
-  0%, 49%   { background: var(--color-a); }
-  50%, 100% { background: var(--color-b); }
-}
-.fader-light.blinking {
-  animation: blink-fader var(--blink-duration) steps(1) infinite;
-}
+.console-button .name-line.edge { display: none; }
+
+/* The MEMS page, in MEMS mode only (app.js puts .mems on #section-physical): a list when the
+   server allows writing (body.writable), else a read-only badge. */
+.page-control,
+.page-badge { display: none; margin-top: 4px; }
+.page-control { font-size: 10px; font-weight: 700; text-transform: none; letter-spacing: 0; }
+body.writable .mems .page-control { display: block; }
+body:not(.writable) .mems .page-badge { display: block; }
+.page-control select { width: 100%; font-size: 11px; }
 
 
 /* 12 columns: the 6 meters and 6 LCD columns fill the row exactly, so the spacer track would
@@ -624,13 +542,10 @@ h1 {
   .special-row { grid-template-columns: repeat(var(--cols), var(--col)); }
 }
 
-/* Narrow windows and phones. Kept at the end of the file so these win the cascade over the
-   same-specificity rules above.
-
-   Compact sizing: at the normal sizes a meter column can't get narrower than ~56px (bar, gap
-   and a bold 2-digit value side by side), which is what held the page at ~900px wide. Smaller
-   padding, gap, bar and value font bring that down to ~40px, enough for 12 columns on a phone
-   in landscape and 6 on a phone in portrait. */
+/* Narrow windows and phones. At the end of the file so these win the cascade. Compact sizing:
+   at normal sizes a meter column is at least ~56px wide (bar, gap and a 2-digit value); smaller
+   padding, gap, bar and value font bring it to ~40px, enough for 12 columns on a phone in
+   landscape and 6 in portrait. */
 @media (max-width: 900px) {
   :root { --gap: 4px; }
   body { padding: 12px 8px 24px; }
@@ -640,21 +555,19 @@ h1 {
   .section { padding: 6px 8px; }
   .section.section-row { gap: 8px; }
   .meter { padding: 2px; }
-  .intensity-row .meter .number { font-size: 13px; }
-  /* "MASTER" is the one badge word that can't wrap, and at 10px it's ~3px too wide for a ~44px
-     column. The LCD labels (below) follow, to keep the badges matching. */
+  .intensity-row .meter .meter-label { font-size: 13px; }
   /* IND 1/2's name sits inside the button's own border and padding, so it has ~6px less than
      an intensity name -- a full 6-character line needs the smaller font at ~44px columns. */
-  #ind-1 .light .name-line,
-  #ind-2 .light .name-line { font-size: 9px; }
-  .intensity-row .meter .value-row,
-  .special-meter .value-row { gap: 3px; }
-  .intensity-row .meter .track,
-  .special-meter .track { width: 10px; flex: 0 0 10px; }
-  .intensity-row .meter .val,
-  .special-meter .val { font-size: 18px; }
+  #btn-ind1 .light .name-line,
+  #btn-ind2 .light .name-line,
+  #section-physical .console-button .light .name-line { font-size: 9px; }
+  .meter .value-row { gap: 3px; }
+  .meter .track { width: 10px; flex: 0 0 10px; }
+  .meter .val { font-size: 18px; }
   .lcd { padding: 2px 2px 4px; }
-  .special-meter .number,
+  /* "MASTER" is the one label word that can't wrap, and at 10px it's ~3px too wide for a ~44px
+     column. The LCD labels follow, to keep them matching. */
+  .special-meter .meter-label,
   .lcd-label { font-size: 9px; }
 }
 
@@ -673,16 +586,14 @@ h1 {
     align-items: center;
     gap: 8px;
   }
-  /* flex: none, not the row layout's flex: 1 1 0 -- as a column-direction flex item that
-     basis would be a height, and these rows are scroll containers (overflow-x: auto), whose
-     automatic minimum height is 0, so they'd collapse. */
+  /* flex: none, not 1 1 0: as column-direction flex items that basis would be a height, and these
+       scroll containers (overflow-x: auto) would collapse. */
   .section.section-row .intensity-row,
   .section.section-row .special-row {
     flex: none;
   }
-  /* Just the --cols columns, like .intensity-row: the LCDs sit side by side below the
-     INDEPENDENTS caption, 3 columns each, filling the row. */
-  .special-row { grid-template-columns: repeat(var(--cols), var(--col)); }
+  /* The LCDs sit side by side below the INDEPENDENTS caption, 3 columns each, filling the
+     row (.special-row is already just the --cols columns, from the <=1600px rule). */
   #lcd-1, #lcd-2 { grid-row: 3; margin-top: 4px; }
   #lcd-1 { grid-column: 1 / 4; }
   #lcd-2 { grid-column: 4 / 7; }

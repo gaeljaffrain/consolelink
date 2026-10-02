@@ -81,7 +81,7 @@ works out of the box for a user-space process).
 ## Usage
 
 ```
-consolelink [--debug] [--capture PATH] [--no-web] [--artnet [DEST]]
+consolelink [--debug] [--capture PATH] [--no-web] [--artnet [DEST]] [--allow-write]
 ```
 
 (or `python -m consolelink ...`). Then open http://localhost:8765. The page updates live as
@@ -108,6 +108,10 @@ ipconfig                 # Windows (look for "IPv4 Address" under your Wi-Fi or 
   comparing against a packet capture when something behaves unexpectedly.
 - `--no-web`: don't start the web server, just poll the console. Needs at least one of `--debug`,
   `--capture`, `--artnet`.
+- `--allow-write`: let the web page control the console: BlackOut, Solo, Ind 1/2, the bump
+  buttons (press and hold the LED under a fader) and the MEMS page. Off by default. There is no
+  authentication, so anyone who can reach the port can use it -- enable it only on a network
+  you trust.
 - `--artnet [DEST]`: send both DMX universes as Art-Net to `DEST` (an IP address, or `broadcast`).
   Bare `--artnet` sends to `127.0.0.1`. Off by default.
 

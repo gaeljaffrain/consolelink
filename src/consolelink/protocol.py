@@ -67,6 +67,7 @@ Decodes:
 
 import struct
 import sys
+import time
 
 import usb.core
 import usb.util
@@ -114,6 +115,43 @@ def find_bulk_interface(dev):
             if ep_in is not None and ep_out is not None:
                 return intf.bInterfaceNumber, intf.bAlternateSetting, ep_in, ep_out
     return None
+
+
+# Console button codes, for ConsoleLink.press_button(). A virtual press is what SmartSoft sends when
+# its Live tab is clicked: the console toggles the function exactly as if its own button were
+# pressed. Confirmed on the console for BlackOut (a press toggles it and the change comes back as a
+# type=0x16 BlackOut indicator update); Solo and the Independents were pressed the same way and their
+# indicators changed too, but are not exposed yet.
+BUTTON_SOLO = 0x56
+BUTTON_BLACKOUT = 0x57
+BUTTON_IND1 = 0x5F
+BUTTON_IND2 = 0x60
+BUTTON_RELEASE_DELAY = 0.12  # SmartSoft sends the release 0.12-0.17 s after the press
+# Fader-mode buttons. Edge-triggered like the toggles: the console switches mode on the press
+# and ignores the release; the mode comes back as type=0x17 about 0.1 s later.
+BUTTON_MODE_INT_A = 0x41
+BUTTON_MODE_INT_B = 0x42
+BUTTON_MODE_INT_DEV = 0x40
+BUTTON_MODE_PARAM_1 = 0x43
+BUTTON_MODE_PARAM_2 = 0x44
+BUTTON_MODE_MEMS = 0x3F
+# A fader's Bump button is a positional code, the same in every fader mode: fader N (1-24) is
+# code N-1. In INT A/B/DEV it is momentary -- the channel sits at the Bumps master's level for as
+# long as the button is held and reverts on release -- and the console ignores a press shorter
+# than about 0.15 s (taps of 78-109 ms did nothing; 0.235 s worked). In MEMS the press fires the
+# memory (the fader sets its level) and holding does nothing extra.
+BUMP_COUNT = 24
+# SmartSoft's MEMS page select is a type=0x27 GUI request, subtype 0x0a, [page-1][0]; the
+# console answers with type=0x17 (data[2] = the 0-based page), then type=0x0e.
+MEMS_PAGE_COUNT = 12
+GUI_SUBTYPE_MEMS_PAGE = 0x0A
+
+
+def bump_code(fader):
+    """Button code of fader `fader`'s (1-24) Bump button."""
+    if not 1 <= fader <= BUMP_COUNT:
+        raise ValueError(f"fader must be 1-{BUMP_COUNT}, got {fader}")
+    return fader - 1
 
 
 def pack_header(msg_type, payload_len, state=(0, 0, 0, 0)):
@@ -528,6 +566,7 @@ class ConsoleLink:
         self.ep_out = ep_out
         self.write_errors = 0
         self.read_timeouts = 0
+        self.next_seq = 2  # seq 0 and 1 are used by send_gui_request() at connect
 
     def write_header(self, msg_type, payload_len=0, state=(0, 0, 0, 0)):
         try:
@@ -597,6 +636,38 @@ class ConsoleLink:
         if not self.write_header(1, 4 + len(data)):
             return False
         return self.write_payload(seq, 0x27, data)
+
+    def send_button(self, code, pressed):
+        """Send one button event OUT: msgType=1 header, then a type=0x14 payload with data
+        [kind=1 (button)][code][pressed 1/0]. The sequence byte is a per-link counter (SmartSoft
+        continues from 2 after its two connect-time type=0x27 requests; this client's own
+        requests use 0 and 1)."""
+        seq = self.next_seq
+        self.next_seq = (seq + 1) & 0xFF
+        data = bytes([1, code, 1 if pressed else 0])
+        if not self.write_header(1, 4 + len(data)):
+            return False
+        return self.write_payload(seq, 0x14, data)
+
+    def send_mems_page(self, page):
+        """Select MEMS page `page` (1-12), like the PAGE dropdown in SmartSoft: one type=0x27
+        request, subtype 0x0a. Works in any fader mode; the console remembers the page."""
+        if not 1 <= page <= MEMS_PAGE_COUNT:
+            raise ValueError(f"page must be 1-{MEMS_PAGE_COUNT}, got {page}")
+        seq = self.next_seq
+        self.next_seq = (seq + 1) & 0xFF
+        data = bytes([GUI_SUBTYPE_MEMS_PAGE, page - 1, 0])
+        if not self.write_header(1, 4 + len(data)):
+            return False
+        return self.write_payload(seq, 0x27, data)
+
+    def press_button(self, code):
+        """Press then release a console button, like a click in SmartSoft. Toggle buttons
+        (BlackOut, Solo, Independents) flip state once per call."""
+        if not self.send_button(code, True):
+            return False
+        time.sleep(BUTTON_RELEASE_DELAY)
+        return self.send_button(code, False)
 
     def request_type(self, type_byte):
         """Proactively ask the console for the current value of a given object type, without

@@ -52,6 +52,7 @@ type=0x0e and the stored type=0x0f bank): a fader at full with Live and Master a
 """
 import argparse
 import json
+import queue
 import sys
 import threading
 import time
@@ -69,7 +70,7 @@ PORT = 8765
 
 # Set from --capture PATH in main(): log every message (known or not) with full hex + a timestamp
 # (see the module docstring).
-CAPTURE_PATH = ""
+capture_path = ""
 
 INTENSITY_MODES = ("INT A", "INT B", "INT DEV")  # sub-modes with a decoded intensity bank (type=0x0e/0x0f)
 ALL_FADER_MODES = INTENSITY_MODES + ("PARAM 1", "PARAM 2", "MEMS")  # every mode the physical fader-mode selector (type=0x17) can report
@@ -109,6 +110,7 @@ state = {
     # [LCD 1 line 1, LCD 1 line 2, LCD 2 line 1, LCD 2 line 2] -- see decode_0x15
     "dmx": None,  # None until the first type=0x0d; then [universe 1, universe 2], each a list of
     # 512 raw 0-255 levels (index 0 = address 1) -- see decode_0x0d_dmx in protocol.py
+    "write_enabled": False,  # True when started with --allow-write; the page enables its buttons
     "last_update": 0.0,
 }
 state_lock = threading.Lock()
@@ -123,11 +125,85 @@ def update_state(**kwargs):
 # Off by default -- run with --debug for per-control change logging, a liveness heartbeat, and
 # announce/ack handshake visibility. Distinguishes "nothing arrived on the wire" from "arrived
 # but decoded/rendered wrong" far faster than guessing. Set from args in main().
-DEBUG = False
+debug = False
 _last_logged_master = None
 _last_logged_selection = None
 _last_logged_intensities = {mode: [0] * 24 for mode in INTENSITY_MODES}
 _t_start = time.time()
+
+# Console button taps requested over HTTP (POST /api/button/<name>), sent by the USB poll thread
+# -- the only thread that touches the device -- between idle polls. The fader-mode buttons are
+# taps too: the console acts on the press edge.
+BUTTONS = {"blackout": sfl.BUTTON_BLACKOUT, "solo": sfl.BUTTON_SOLO,
+           "ind1": sfl.BUTTON_IND1, "ind2": sfl.BUTTON_IND2,
+           "mode-int-a": sfl.BUTTON_MODE_INT_A, "mode-int-b": sfl.BUTTON_MODE_INT_B,
+           "mode-int-dev": sfl.BUTTON_MODE_INT_DEV, "mode-param-1": sfl.BUTTON_MODE_PARAM_1,
+           "mode-param-2": sfl.BUTTON_MODE_PARAM_2, "mode-mems": sfl.BUTTON_MODE_MEMS}
+# Set from --allow-write in main(). Off by default: writing is refused (403) and the page's
+# buttons stay inert, since the server has no authentication and listens on every interface.
+write_enabled = False
+# Events for the poll thread: ("tap", code), ("press", code), ("keepalive", code), ("release", code),
+# ("page", n).
+button_queue = queue.Queue()
+
+# A Bump button is held, not tapped (INT modes: the channel stays bumped for as long as the
+# button is down), so the page sends press and release separately -- and sends a keepalive
+# every ~250 ms. The console never releases a button by itself (a bump stays on
+# if the USB cable is pulled mid-press), so HeldButtons releases for the client when the
+# keepalive stops (BUMP_LEASE: a phone off Wi-Fi, a closed tab), when a hold runs past
+# BUMP_MAX_HOLD, and on shutdown.
+BUMP_LEASE = 0.75
+BUMP_MAX_HOLD = 30.0
+
+
+class HeldButtons:
+    """Buttons currently pressed on the console, owned by the poll thread. `clock` is injectable
+    so the timing can be tested without sleeping."""
+
+    def __init__(self, link, clock=time.monotonic):
+        self.link = link
+        self.clock = clock
+        self.held = {}  # code -> {"since", "seen", "release"}
+
+    def press(self, code):
+        """A press from the client. Pressed again before the release went out, it is one
+        continuous hold."""
+        now = self.clock()
+        h = self.held.get(code)
+        if h is None:
+            if self.link.send_button(code, True):
+                self.held[code] = {"since": now, "seen": now, "release": False}
+        else:
+            h["seen"] = now
+            h["release"] = False
+
+    def keepalive(self, code):
+        """The client still holds `code`. Refresh-only, never a new press: a keepalive that
+        was in flight when the release arrived must not re-press the button."""
+        h = self.held.get(code)
+        if h is not None:
+            h["seen"] = self.clock()
+
+    def release(self, code):
+        h = self.held.get(code)
+        if h is not None:
+            h["release"] = True
+
+    def service(self):
+        """Send the releases that are due. The press is not stretched: the console ignores one
+        shorter than ~0.15 s, and how long to press is up to the user."""
+        now = self.clock()
+        for code, h in list(self.held.items()):
+            due = h["release"] or now - h["seen"] > BUMP_LEASE or now - h["since"] > BUMP_MAX_HOLD
+            if due:
+                self.link.send_button(code, False)
+                del self.held[code]
+
+    def release_all(self):
+        for code in list(self.held):
+            self.link.send_button(code, False)
+        self.held.clear()
+
 
 # Set from --artnet in main(): an artnet.ArtNetSender fed with every DMX snapshot, or None.
 artnet_sender = None
@@ -139,7 +215,7 @@ def handle_payload(obj_type, data):
         full = sfl.decode_0x0e_full(data)
         if full is not None:
             faders, bumps, master = full
-            if DEBUG and master != _last_logged_master:
+            if debug and master != _last_logged_master:
                 print(f"[master] t={time.time() - _t_start:7.3f}  {_last_logged_master} -> {master}",
                       file=sys.stderr)
                 _last_logged_master = master
@@ -150,7 +226,7 @@ def handle_payload(obj_type, data):
                 # whether type=0x0e's raw fader value even means "intensity" in those other
                 # modes is still an open RE question, and indexing with "PARAM 1" is a KeyError.
                 if mode in INTENSITY_MODES:
-                    if DEBUG and faders != _last_logged_intensities[mode]:
+                    if debug and faders != _last_logged_intensities[mode]:
                         changed = {i + 1: (_last_logged_intensities[mode][i], v)
                                    for i, v in enumerate(faders) if v != _last_logged_intensities[mode][i]}
                         print(f"[intensity:{mode}] t={time.time() - _t_start:7.3f}  "
@@ -170,7 +246,7 @@ def handle_payload(obj_type, data):
     elif obj_type == 0x17:
         mode = sfl.decode_0x17(data)
         if mode in ALL_FADER_MODES:
-            if DEBUG:
+            if debug:
                 print(f"[mode] t={time.time() - _t_start:7.3f}  "
                       f"{state['fader_mode']} -> {mode} (now confirmed)", file=sys.stderr)
             update = {"fader_mode": mode, "fader_mode_confirmed": True}
@@ -178,7 +254,7 @@ def handle_payload(obj_type, data):
                 page = sfl.decode_0x17_mems_page(data)
                 if page is not None:
                     update["mems_page"] = page
-                    if DEBUG:
+                    if debug:
                         print(f"[mems page] t={time.time() - _t_start:7.3f}  page={page}",
                               file=sys.stderr)
             update_state(**update)
@@ -186,7 +262,7 @@ def handle_payload(obj_type, data):
     elif obj_type == 0x09:
         labels = sfl.decode_0x09_labels(data)
         if labels:
-            if DEBUG:
+            if debug:
                 received = [(family, index, lines)
                             for family, entries in labels.items()
                             for index, lines in entries.items()]
@@ -218,7 +294,7 @@ def handle_payload(obj_type, data):
         if 2 in entries and any(entries[2][2]):
             update.setdefault("independent_labels", {})
             update["independent_labels"][2] = entries[2][2]
-        if DEBUG and update:
+        if debug and update:
             print(f"[independents] t={time.time() - _t_start:7.3f}  {update}", file=sys.stderr)
         if update:
             update_state(**{k: v for k, v in update.items() if k not in {"independent_labels"}})
@@ -232,7 +308,7 @@ def handle_payload(obj_type, data):
         flags = sfl.decode_0x16_indicators(data)
         update = {k: v for k, v in (("solo", flags["solo"]), ("blackout", flags["blackout"]))
                   if v is not None}
-        if DEBUG and update:
+        if debug and update:
             print(f"[solo/blackout] t={time.time() - _t_start:7.3f}  {update}", file=sys.stderr)
         if update:
             update_state(**update)
@@ -263,7 +339,7 @@ def handle_payload(obj_type, data):
         full = sfl.decode_0x11_full(data)
         if full is not None:
             live, next_ = full
-            if DEBUG and (live, next_) != (state["crossfader_live"], state["crossfader_next"]):
+            if debug and (live, next_) != (state["crossfader_live"], state["crossfader_next"]):
                 print(f"[crossfader] t={time.time() - _t_start:7.3f}  live={live} next={next_}",
                       file=sys.stderr)
             update_state(crossfader_live=live, crossfader_next=next_)
@@ -271,7 +347,7 @@ def handle_payload(obj_type, data):
     elif obj_type == 0x0d:
         universes = sfl.decode_0x0d_dmx(data)
         if universes is not None:
-            if DEBUG:
+            if debug:
                 old = state["dmx"] or [[0] * 512, [0] * 512]
                 changes = [f"U{u + 1}.{a + 1}={universes[u][a]}" for u in range(2) for a in range(512)
                            if universes[u][a] != old[u][a]]
@@ -284,7 +360,7 @@ def handle_payload(obj_type, data):
     elif obj_type == 0x15:
         lines = sfl.decode_0x15(data)
         if lines is not None:
-            if DEBUG and lines != state["lcd"]:
+            if debug and lines != state["lcd"]:
                 print(f"[lcd] t={time.time() - _t_start:7.3f}  {lines!r}", file=sys.stderr)
             update_state(lcd=lines)
     # MEMS memory ("Look") names, connect-time only -- see decode_0x00_memory_name in
@@ -293,7 +369,7 @@ def handle_payload(obj_type, data):
         result = sfl.decode_0x00_memory_name(data)
         if result is not None:
             page, slot, lines = result
-            if DEBUG and any(lines):
+            if debug and any(lines):
                 print(f"[mems label] page={page + 1} slot={slot + 1}: {lines!r}", file=sys.stderr)
             with state_condition:
                 state["labels"]["MEMS"].setdefault(page + 1, {})[slot + 1] = lines
@@ -302,11 +378,11 @@ def handle_payload(obj_type, data):
     # Device/Palette-Select selection: not shown in the web UI, only logged under --debug
     elif obj_type == 0x18:
         ids = sfl.decode_0x18(data)
-        if DEBUG and ids is not None and ids != _last_logged_selection:
+        if debug and ids is not None and ids != _last_logged_selection:
             print(f"[selection] t={time.time() - _t_start:7.3f}  ids={ids}", file=sys.stderr)
             _last_logged_selection = ids
     # Anything without a decoder: silent, except under --debug, where it is worth seeing
-    elif DEBUG:
+    elif debug:
         if obj_type in sfl.KNOWN_UNDECODED_TYPES:
             # Seen in captures but not decoded -- not fader data, not an error.
             label = "known, undecoded"
@@ -348,10 +424,10 @@ def poll_forever(stop_event):
         update_state(connected=True, device=sfl.MODEL_NAMES.get(dev.idProduct))
         print(f"[consolelink] connected: {dev.manufacturer!r} {dev.product!r}")
 
-        capture_f = open(CAPTURE_PATH, "a") if CAPTURE_PATH else None
+        capture_f = open(capture_path, "a") if capture_path else None
         capture_t0 = time.time()
         if capture_f:
-            print(f"[consolelink] raw capture logging to {CAPTURE_PATH}", file=sys.stderr)
+            print(f"[consolelink] raw capture logging to {capture_path}", file=sys.stderr)
 
         def log_capture(kind, obj_type, data):
             if capture_f:
@@ -366,7 +442,7 @@ def poll_forever(stop_event):
         if mode_type is not None:
             log_capture("requested", mode_type, mode_data)
             handle_payload(mode_type, mode_data)
-        elif DEBUG:
+        elif debug:
             print("[consolelink] proactive 0x17 request got no reply", file=sys.stderr)
 
         # Ask for current fader/master/bumps state directly rather than relying on the
@@ -377,7 +453,7 @@ def poll_forever(stop_event):
         if obj_type is not None:
             log_capture("requested", obj_type, data)
             handle_payload(obj_type, data)
-        elif DEBUG:
+        elif debug:
             print("[consolelink] proactive 0x0e request got no reply", file=sys.stderr)
 
         # type=0x0f holds all three intensity banks at once, so INT B/INT DEV get real data on
@@ -387,7 +463,7 @@ def poll_forever(stop_event):
         if all_type is not None:
             log_capture("requested", all_type, all_data)
             handle_payload(all_type, all_data)
-        elif DEBUG:
+        elif debug:
             print("[consolelink] proactive 0x0f request got no reply", file=sys.stderr)
 
         # Independents, Solo/BlackOut, the LCD text, the crossfaders and the DMX output are
@@ -398,9 +474,10 @@ def poll_forever(stop_event):
             if obj_type is not None:
                 log_capture("requested", obj_type, data)
                 handle_payload(obj_type, data)
-            elif DEBUG:
+            elif debug:
                 print(f"[consolelink] proactive {label} request got no reply", file=sys.stderr)
 
+        held = HeldButtons(link)
         consecutive_write_fails = 0
         needs_reset = False
         good_headers = 0
@@ -408,7 +485,7 @@ def poll_forever(stop_event):
         plain_poll_started = time.time()
         gui_requests_sent = False
         while not stop_event.is_set():
-            if DEBUG and time.time() - last_heartbeat >= 10.0:
+            if debug and time.time() - last_heartbeat >= 10.0:
                 # Distinguishes "still polling fine, nothing new" from a genuine stall -- if
                 # this stops appearing, the loop is stuck above, likely in a read/write that
                 # isn't timing out (the announce/ack path has its own DROPPED logging instead).
@@ -416,6 +493,23 @@ def poll_forever(stop_event):
                       f"good_headers={good_headers} write_fails={link.write_errors} "
                       f"read_timeouts={link.read_timeouts}", file=sys.stderr)
                 last_heartbeat = time.time()
+
+            while True:
+                try:
+                    kind, arg = button_queue.get_nowait()
+                except queue.Empty:
+                    break
+                if kind == "tap":
+                    link.press_button(arg)
+                elif kind == "press":
+                    held.press(arg)
+                elif kind == "keepalive":
+                    held.keepalive(arg)
+                elif kind == "release":
+                    held.release(arg)
+                elif kind == "page":
+                    link.send_mems_page(arg)
+            held.service()
 
             if not link.write_header(0, 0, (0, 0, 0, 0)):
                 consecutive_write_fails += 1
@@ -456,34 +550,34 @@ def poll_forever(stop_event):
                 for announced_type, selector in announced_entries:
                     # NOTE: every `continue` below silently drops this announced update with
                     # NO retry. Never observed firing in practice, but if a future "misses
-                    # the last state" report comes back, enable DEBUG and one of these lines
+                    # the last state" report comes back, enable debug and one of these lines
                     # should show up right when it happens.
                     ack_state = (announced_type, selector[0], selector[1], 0)
                     if not link.write_header(2, 0, ack_state):
-                        if DEBUG:
+                        if debug:
                             print(f"[announce 0x{announced_type:02x} t={time.time() - _t_start:7.3f}] "
                                   f"DROPPED: ack write failed", file=sys.stderr)
                         continue
                     if not link.write_header(0, 0, ack_state):
-                        if DEBUG:
+                        if debug:
                             print(f"[announce 0x{announced_type:02x} t={time.time() - _t_start:7.3f}] "
                                   f"DROPPED: follow-up poll write failed", file=sys.stderr)
                         continue
                     ack_reply = link.read_header()
                     if ack_reply is None:
-                        if DEBUG:
+                        if debug:
                             print(f"[announce 0x{announced_type:02x} t={time.time() - _t_start:7.3f}] "
                                   f"DROPPED: ack header read timed out", file=sys.stderr)
                         continue
                     _, ack_payload_len, _ = ack_reply
                     if ack_payload_len == 0:
-                        if DEBUG:
+                        if debug:
                             print(f"[announce 0x{announced_type:02x} t={time.time() - _t_start:7.3f}] "
                                   f"DROPPED: ack reply had payloadLen=0", file=sys.stderr)
                         continue
                     ack_raw = link.read_payload(ack_payload_len)
                     if ack_raw is None:
-                        if DEBUG:
+                        if debug:
                             print(f"[announce 0x{announced_type:02x} t={time.time() - _t_start:7.3f}] "
                                   f"DROPPED: payload read timed out", file=sys.stderr)
                         continue
@@ -495,6 +589,7 @@ def poll_forever(stop_event):
                 log_capture("payload", obj_type, data)
                 handle_payload(obj_type, data)
 
+        held.release_all()
         update_state(connected=False, device=None)
         if capture_f:
             capture_f.close()
@@ -512,6 +607,11 @@ def poll_forever(stop_event):
                       file=sys.stderr)
         usb.util.dispose_resources(dev)
         time.sleep(1.0)
+
+
+def _int_in_range(text, lo, hi):
+    """int(text) if it is a plain decimal in lo..hi, else None."""
+    return int(text) if text.isdecimal() and lo <= int(text) <= hi else None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -543,6 +643,44 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_response(404)
             self.end_headers()
+
+    def do_POST(self):
+        """POST /api/button/<name> (tap), /api/bump/<1-24>/press|keepalive|release (hold) and
+        /api/mems_page/<1-12>. All need --allow-write and a connected console."""
+        event = self._parse_write_request()
+        if event is None:
+            self.send_response(404)
+            self.end_headers()
+            return
+        if not write_enabled:
+            self.send_response(403)
+            self.end_headers()
+            return
+        with state_lock:
+            connected = state["connected"]
+        if not connected:
+            self.send_response(503)
+            self.end_headers()
+            return
+        button_queue.put(event)
+        self.send_response(204)
+        self.end_headers()
+
+    def _parse_write_request(self):
+        """The queue event for self.path, or None if it isn't a valid write request."""
+        parts = self.path.strip("/").split("/")
+        if len(parts) == 3 and parts[:2] == ["api", "button"] and parts[2] in BUTTONS:
+            return ("tap", BUTTONS[parts[2]])
+        if (len(parts) == 4 and parts[:2] == ["api", "bump"]
+                and parts[3] in ("press", "keepalive", "release")):
+            fader = _int_in_range(parts[2], 1, sfl.BUMP_COUNT)
+            if fader is not None:
+                return (parts[3], sfl.bump_code(fader))
+        if len(parts) == 3 and parts[:2] == ["api", "mems_page"]:
+            page = _int_in_range(parts[2], 1, sfl.MEMS_PAGE_COUNT)
+            if page is not None:
+                return ("page", page)
+        return None
 
     def _serve_events(self):
         """Server-Sent Events: push the current state every time it changes (or at
@@ -591,7 +729,7 @@ class QuietThreadingHTTPServer(ThreadingHTTPServer):
 
 
 def main():
-    global DEBUG, CAPTURE_PATH, artnet_sender
+    global debug, capture_path, artnet_sender, write_enabled
     parser = argparse.ArgumentParser(
         description="Local web app showing live console state (physical faders + per-mode intensities).")
     parser.add_argument("--debug", action="store_true",
@@ -605,13 +743,22 @@ def main():
     parser.add_argument("--no-web", action="store_true",
                          help="Don't start the web server; just poll the console (use with "
                               "--debug, --capture and/or --artnet).")
+    parser.add_argument("--allow-write", action="store_true",
+                         help="Let the web page press console buttons (BlackOut, Solo, Ind 1/2, "
+                              "the fader-mode buttons, the Bump buttons) and pick the MEMS page. "
+                              "Off by default: the server has no authentication, so anyone who "
+                              "can reach its port could use it.")
     artnet.add_arguments(parser)
     args = parser.parse_args()
     if args.no_web and not (args.debug or args.capture or args.artnet is not None):
         parser.error("--no-web needs at least one of --debug, --capture, --artnet "
                      "(otherwise there is nothing to do)")
-    DEBUG = args.debug
-    CAPTURE_PATH = args.capture
+    if args.allow_write and args.no_web:
+        parser.error("--allow-write needs the web page (drop --no-web)")
+    debug = args.debug
+    write_enabled = args.allow_write
+    update_state(write_enabled=write_enabled)
+    capture_path = args.capture
     artnet_sender = artnet.sender_from_args(args, parser)
 
     stop_event = threading.Event()

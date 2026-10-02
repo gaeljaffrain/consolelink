@@ -29,7 +29,7 @@ function buildIntensityMeters(mode) {
     f.className = "meter";
     f.id = "intensity-" + mode + "-" + i;
     f.innerHTML = `
-      <div class="number">${i}</div>
+      <div class="meter-label">${i}</div>
       <div class="value-row">
         <div class="track"><div class="fill" style="height:0%"></div></div>
         <div class="val">0</div>
@@ -51,16 +51,19 @@ function buildPhysicalFaderMeters() {
     f.className = "meter";
     f.id = "physfader-" + i;
     f.innerHTML = `
-      <div class="number">${i}</div>
+      <div class="meter-label">${i}</div>
       <div class="value-row">
         <div class="track"><div class="fill" style="height:0%"></div></div>
         <div class="val">0</div>
       </div>
-      <div class="fader-light" id="physfader-${i}-light"></div>
       <div class="name">
-        <div class="name-line"></div>
-        <div class="name-line"></div>
-        <div class="name-line"></div>
+        <div class="console-button" id="physfader-${i}-light" data-bump="${i}">
+          <div class="light">
+            <div class="name-line"></div>
+            <div class="name-line"></div>
+            <div class="name-line"></div>
+          </div>
+        </div>
       </div>`;
     row.appendChild(f);
   }
@@ -167,6 +170,12 @@ function setName(container, lines) {
   for (let i = 0; i < lineEls.length; i++) {
     lineEls[i].textContent = lines?.[i] || "";
   }
+  // Blank lines before the first and after the last used one are marked .edge, which a button
+  // hides so a 1- or 2-line name centers vertically; a blank line between two used ones stays.
+  const used = [...lineEls].map(el => el.textContent.trim() !== "");
+  const first = used.indexOf(true);
+  const last = used.lastIndexOf(true);
+  lineEls.forEach((el, i) => el.classList.toggle("edge", i < first || i > last));
 }
 
 // Physical Faders' per-fader label depends on the fader mode. INT A/B/DEV and PARAM 1/2 use
@@ -339,7 +348,7 @@ function rgbCss(color) {
 
 // Colors the console itself sends (bump LEDs, FADERS bars, Solo/BlackOut) and the page's
 // LED-matching palette (PALETTE_TOKENS below) all go through softenColor(). saturation: the
-// header's Soft <-> Native slider, 1 = the LED's own color, lower = softer.
+// settings' Soft <-> Native slider, 1 = the LED's own color, lower = softer.
 const SATURATION_KEY = "consolelink.saturation";
 let saturation = 0.6;
 try {
@@ -389,6 +398,24 @@ function setLightColors(el, light) {
   el.style.setProperty("--color-b", b ? softenColor(b) : "");
 }
 
+// Text color for a label drawn over the LED color rgb: the page's dark text on a bright LED, its
+// light text on a dim one (an INT fader's LED dims with the fader, and MEMS LEDs are dim), by
+// whichever has the higher WCAG contrast. "" (CSS fallback) while the LED is unknown.
+const luminance = rgb => {
+  const [r, g, b] = rgb.map(srgbToLinear);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+function onLightText(light) {
+  const c = light && (light.blinking ? light.color_a : light.color);
+  if (!c) return "";
+  const css = getComputedStyle(document.documentElement);
+  const DARK_TEXT_LUM = luminance(hexToRgb(css.getPropertyValue("--darktext").trim(), "--darktext"));
+  const LIGHT_TEXT_LUM = luminance(hexToRgb(css.getPropertyValue("--text").trim(), "--text"));
+  const y = luminance(c);
+  const contrast = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  return contrast(y, DARK_TEXT_LUM) >= contrast(y, LIGHT_TEXT_LUM) ? "var(--darktext)" : "var(--text)";
+}
+
 // The FADERS bar takes only the hue of its bump LED, at full brightness: in INT modes the LED
 // dims with the fader, which would otherwise make a low fader's bar near-black. "" (CSS
 // fallback) while the LED is unknown or dark.
@@ -425,9 +452,11 @@ function setPhysicalFader(i, value, light, mode, labels, memsPage) {
   const meterEl = document.getElementById("physfader-" + i);
   setBar(meterEl, value, true);
   setName(meterEl, physicalFaderLabelLines(mode, i, labels, memsPage));
-  const lightEl = document.getElementById("physfader-" + i + "-light");
-  lightEl.classList.toggle("blinking", !!light?.blinking);
-  setLightColors(lightEl, light);
+  const dark = light && !Math.max(...(light.blinking ? [...light.color_a, ...light.color_b] : light.color));
+  setIndicator(document.getElementById("physfader-" + i + "-light"),
+    !light ? null : dark ? "off" : light.blinking ? "blinking" : "on", light, true);
+  document.getElementById("physfader-" + i + "-light").style
+    .setProperty("--on-text", dark ? "" : onLightText(light));
   meterEl.style.setProperty("--bar-color", barColor(light));
 }
 
@@ -448,6 +477,7 @@ let lastState = null;  // re-rendered as-is when the saturation slider moves
 
 function render(state) {
   lastState = state;
+  document.body.classList.toggle("writable", state.write_enabled === true);
   const dot = document.getElementById("dot");
   const connText = document.getElementById("conn-text");
   dot.classList.toggle("ok", state.connected);
@@ -463,6 +493,8 @@ function render(state) {
   const modeClass = (modeKnown && MODE_PILL_CLASS[state.fader_mode]) || "";
   pill.className = "mode-pill " + modeClass + (state.fader_mode_confirmed ? "" : " unconfirmed");
   pill.textContent = modeKnown ? state.fader_mode : "unknown";
+  modeSelect.className = pill.className;
+  if (document.activeElement !== modeSelect) modeSelect.value = modeKnown ? state.fader_mode : "";
 
   MODES.forEach(mode => {
     const badge = document.querySelector("#section-" + CSS.escape(mode) + " .active-badge");
@@ -472,7 +504,7 @@ function render(state) {
     for (let i = 1; i <= 24; i++) {
       const el = document.getElementById("intensity-" + mode + "-" + i);
       setBar(el, state.intensities[mode][i - 1], true);
-      el.querySelector(".number").textContent = String(i);
+      el.querySelector(".meter-label").textContent = String(i);
       setName(el, state.labels?.[mode]?.[i]);
     }
   });
@@ -483,6 +515,10 @@ function render(state) {
   setBar(document.getElementById("xfade-next"), state.crossfader_next);
 
   document.getElementById("section-physical").classList.toggle("mems", state.fader_mode === "MEMS");
+  document.getElementById("mems-page-badge").textContent = "PAGE " + (state.mems_page ?? "—");
+  if (state.fader_mode === "MEMS" && state.mems_page && document.activeElement !== pageSelect) {
+    pageSelect.value = String(state.mems_page);
+  }
   for (let i = 1; i <= 24; i++) {
     setPhysicalFader(i, state.physical_faders?.[i - 1] ?? 0, state.physical_fader_lights?.[i - 1],
       state.fader_mode, state.labels, state.mems_page);
@@ -494,12 +530,12 @@ function render(state) {
     updateFaderGroupBars();
   }
 
-  setIndependent(document.getElementById("ind1"), document.getElementById("ind-1"),
+  setIndependent(document.getElementById("ind1"), document.getElementById("btn-ind1"),
     state.independent1, state.independent1_clicked, state.independent_labels?.[1]);
-  setIndependent(document.getElementById("ind2"), document.getElementById("ind-2"),
+  setIndependent(document.getElementById("ind2"), document.getElementById("btn-ind2"),
     state.independent2, state.independent2_clicked, state.independent_labels?.[2]);
-  setIndicator(document.getElementById("ind-solo"), state.solo, state.indicator_lights?.solo, true);
-  setIndicator(document.getElementById("ind-blackout"), state.blackout,
+  setIndicator(document.getElementById("btn-solo"), state.solo, state.indicator_lights?.solo, true);
+  setIndicator(document.getElementById("btn-blackout"), state.blackout,
     state.indicator_lights?.blackout, true);
 
   setLcds(state.lcd);
@@ -509,6 +545,7 @@ function render(state) {
   lastUpdate = state.last_update;
 }
 
+const modeSelect = document.getElementById("mode-select");
 const saturationInput = document.getElementById("saturation");
 // Clamped to the slider's own range, so a value saved under an older range can't go past it.
 saturation = Math.min(Math.max(saturation, parseFloat(saturationInput.min)),
@@ -522,7 +559,7 @@ saturationInput.addEventListener("input", () => {
   if (lastState) render(lastState);
 });
 
-// Header "INT A/B" checkbox: INT DEV may be all that is needed, so the two 24-wide INT A/B rows
+// Settings "Show INT A/B" checkbox: INT DEV may be all that is needed, so the two 24-wide INT A/B rows
 // can be hidden. Display only -- they keep rendering while hidden. With no saved choice yet,
 // they start hidden on a phone in portrait (6 columns), where each one is 4 meter rows tall.
 const SHOW_INT_AB_KEY = "consolelink.showIntAB";
@@ -543,6 +580,21 @@ showIntAbInput.addEventListener("change", () => {
   applyShowIntAb();
 });
 
+// Settings overlay, opened by the header gear; closed by its X, a click on the backdrop, or Escape.
+const settingsOverlay = document.getElementById("settings-overlay");
+const settingsBtn = document.getElementById("settings-btn");
+function setSettingsOpen(open) {
+  settingsOverlay.hidden = !open;
+  settingsBtn.setAttribute("aria-expanded", String(open));
+  if (open) document.getElementById("settings-close").focus(); else settingsBtn.focus();
+}
+settingsBtn.addEventListener("click", () => setSettingsOpen(settingsOverlay.hidden));
+document.getElementById("settings-close").addEventListener("click", () => setSettingsOpen(false));
+settingsOverlay.addEventListener("click", (ev) => { if (ev.target === settingsOverlay) setSettingsOpen(false); });
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && !settingsOverlay.hidden) setSettingsOpen(false);
+});
+
 // Pushed via Server-Sent Events rather than polled: every state change the server
 // decodes is sent immediately, so no update is silently skipped between polls.
 function connect() {
@@ -558,6 +610,81 @@ try {
   const storedTab = localStorage.getItem(TAB_KEY);
   if (TABS.includes(storedTab)) showTab(storedTab);
 } catch (e) { /* stays on Playback */ }
+
+// Buttons marked data-button toggle that console function (BlackOut, Solo, Independents) when
+// the server runs with --allow-write. The new state comes back through the normal SSE stream
+// (a button only lights when the console reports it), not set locally.
+document.querySelectorAll("[data-button]").forEach((el) => {
+  el.addEventListener("click", () => {
+    if (!document.body.classList.contains("writable")) return;
+    fetch(`/api/button/${el.dataset.button}`, { method: "POST" }).catch(() => {});
+  });
+});
+
+// A fader's Bump LED doubles as its Bump button: the console holds the bump for as long as the
+// button is down, so the press goes out on pointerdown and the release on pointerup, with a
+// keepalive in between -- the server releases for us if the keepalive stops (page closed, phone
+// off Wi-Fi), because the console never releases a button by itself. Like the toggle buttons,
+// the LED only lights when the console reports it.
+const BUMP_KEEPALIVE_MS = 250;
+const heldBumps = new Map();  // fader -> keepalive timer
+function postBump(fader, action) {
+  fetch(`/api/bump/${fader}/${action}`, { method: "POST" }).catch(() => {});
+}
+function pressBump(fader) {
+  if (heldBumps.has(fader) || !document.body.classList.contains("writable")) return;
+  postBump(fader, "press");
+  heldBumps.set(fader, setInterval(() => postBump(fader, "keepalive"), BUMP_KEEPALIVE_MS));
+}
+function releaseBump(fader) {
+  if (!heldBumps.has(fader)) return;
+  clearInterval(heldBumps.get(fader));
+  heldBumps.delete(fader);
+  postBump(fader, "release");
+}
+function releaseAllBumps() {
+  [...heldBumps.keys()].forEach(releaseBump);
+}
+document.querySelectorAll("[data-bump]").forEach((el) => {
+  const fader = Number(el.dataset.bump);
+  el.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    el.setPointerCapture(e.pointerId);  // the release arrives here even if the pointer slides off
+    pressBump(fader);
+  });
+  ["pointerup", "pointercancel"].forEach(t => el.addEventListener(t, () => releaseBump(fader)));
+});
+window.addEventListener("blur", releaseAllBumps);
+window.addEventListener("pagehide", releaseAllBumps);
+document.addEventListener("visibilitychange", () => { if (document.hidden) releaseAllBumps(); });
+
+// MEMS page select (SmartSoft's PAGE dropdown), shown only in MEMS mode (see style.css); without
+// --allow-write the read-only badge shows the page instead. The console confirms with its own
+// page number, so both follow state.mems_page.
+// Fader-mode select (the FADERS title's mode pill, with --allow-write): taps the console's
+// matching mode button, and the console's own type=0x17 reply is what moves the select -- so if
+// the console doesn't switch, it falls back to the real mode a moment later.
+const MODE_BUTTONS = {
+  "INT A": "mode-int-a", "INT B": "mode-int-b", "INT DEV": "mode-int-dev",
+  "PARAM 1": "mode-param-1", "PARAM 2": "mode-param-2", "MEMS": "mode-mems",
+};
+const unknownOption = new Option("unknown", "");
+unknownOption.disabled = true;
+modeSelect.add(unknownOption);
+Object.keys(MODE_BUTTONS).forEach(mode => modeSelect.add(new Option(mode, mode)));
+modeSelect.addEventListener("change", () => {
+  if (!document.body.classList.contains("writable")) return;
+  fetch(`/api/button/${MODE_BUTTONS[modeSelect.value]}`, { method: "POST" }).catch(() => {});
+  modeSelect.blur();
+  setTimeout(() => { if (lastState) render(lastState); }, 1000);
+});
+
+const pageSelect = document.getElementById("mems-page");
+for (let p = 1; p <= 12; p++) pageSelect.add(new Option(String(p), String(p)));
+pageSelect.addEventListener("change", () => {
+  if (!document.body.classList.contains("writable")) return;
+  fetch(`/api/mems_page/${pageSelect.value}`, { method: "POST" }).catch(() => {});
+});
 
 connect();
 

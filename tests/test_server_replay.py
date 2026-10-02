@@ -81,7 +81,7 @@ def test_malformed_dmx_leaves_state_untouched(server, capture):
 
 
 def test_undecoded_types_are_reported_under_debug(server, capsys):
-    server.DEBUG = True
+    server.debug = True
     server.handle_payload(0x10, bytes(range(20)))
     server.handle_payload(0x7e, b"\x01\x02")
     err = capsys.readouterr().err
