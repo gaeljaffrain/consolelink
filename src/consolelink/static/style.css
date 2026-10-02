@@ -599,6 +599,15 @@ body.writable [data-button] { cursor: pointer; }
    physical fader hasn't caught its stored value yet). Colors are the console's own RGB
    (--color-a/--color-b, set via setLightColors() in app.js).
    Sized to sit in a .meter's .name slot, same 24-per-row grid as the intensity rows above. */
+/* The MEMS page, shown only in MEMS mode (app.js puts .mems on #section-physical): a list when
+   the server allows writing (body.writable), otherwise a read-only badge styled like the mode
+   pill's neutral state. */
+.page-control, .page-badge { display: none; margin-top: 4px; font-size: 10px; font-weight: 700; text-transform: none; letter-spacing: 0; }
+.page-badge { padding: 1px 6px; border-radius: 4px; text-align: center; background: var(--grid); color: var(--dim); }
+body.writable .mems .page-control { display: block; }
+body:not(.writable) .mems .page-badge { display: block; }
+.page-control select { width: 100%; font-size: 11px; }
+body.writable .fader-light { cursor: pointer; touch-action: none; user-select: none; }
 .fader-light {
   width: 100%;
   height: 16px;

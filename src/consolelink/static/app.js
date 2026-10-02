@@ -56,7 +56,7 @@ function buildPhysicalFaderMeters() {
         <div class="track"><div class="fill" style="height:0%"></div></div>
         <div class="val">0</div>
       </div>
-      <div class="fader-light" id="physfader-${i}-light"></div>
+      <div class="fader-light" id="physfader-${i}-light" data-bump="${i}"></div>
       <div class="name">
         <div class="name-line"></div>
         <div class="name-line"></div>
@@ -484,6 +484,10 @@ function render(state) {
   setBar(document.getElementById("xfade-next"), state.crossfader_next);
 
   document.getElementById("section-physical").classList.toggle("mems", state.fader_mode === "MEMS");
+  document.getElementById("mems-page-badge").textContent = "PAGE " + (state.mems_page ?? "—");
+  if (state.fader_mode === "MEMS" && state.mems_page && document.activeElement !== pageSelect) {
+    pageSelect.value = String(state.mems_page);
+  }
   for (let i = 1; i <= 24; i++) {
     setPhysicalFader(i, state.physical_faders?.[i - 1] ?? 0, state.physical_fader_lights?.[i - 1],
       state.fader_mode, state.labels, state.mems_page);
@@ -568,6 +572,53 @@ document.querySelectorAll("[data-button]").forEach((el) => {
     if (!document.body.classList.contains("writable")) return;
     fetch(`/api/button/${el.dataset.button}`, { method: "POST" }).catch(() => {});
   });
+});
+
+// A fader's Bump LED doubles as its Bump button: the console holds the bump for as long as the
+// button is down, so the press goes out on pointerdown and the release on pointerup, with a
+// keepalive in between -- the server releases for us if the keepalive stops (page closed, phone
+// off Wi-Fi), because the console never releases a button by itself. Like the toggle buttons,
+// the LED only lights when the console reports it.
+const BUMP_KEEPALIVE_MS = 250;
+const heldBumps = new Map();  // fader -> keepalive timer
+function postBump(fader, action) {
+  fetch(`/api/bump/${fader}/${action}`, { method: "POST" }).catch(() => {});
+}
+function pressBump(fader) {
+  if (heldBumps.has(fader) || !document.body.classList.contains("writable")) return;
+  postBump(fader, "press");
+  heldBumps.set(fader, setInterval(() => postBump(fader, "keepalive"), BUMP_KEEPALIVE_MS));
+}
+function releaseBump(fader) {
+  if (!heldBumps.has(fader)) return;
+  clearInterval(heldBumps.get(fader));
+  heldBumps.delete(fader);
+  postBump(fader, "release");
+}
+function releaseAllBumps() {
+  [...heldBumps.keys()].forEach(releaseBump);
+}
+document.querySelectorAll("[data-bump]").forEach((el) => {
+  const fader = Number(el.dataset.bump);
+  el.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    el.setPointerCapture(e.pointerId);  // the release arrives here even if the pointer slides off
+    pressBump(fader);
+  });
+  ["pointerup", "pointercancel"].forEach(t => el.addEventListener(t, () => releaseBump(fader)));
+});
+window.addEventListener("blur", releaseAllBumps);
+window.addEventListener("pagehide", releaseAllBumps);
+document.addEventListener("visibilitychange", () => { if (document.hidden) releaseAllBumps(); });
+
+// MEMS page select (SmartSoft's PAGE dropdown), shown only in MEMS mode (see style.css); without
+// --allow-write the read-only badge shows the page instead. The console confirms with its own
+// page number, so both follow state.mems_page.
+const pageSelect = document.getElementById("mems-page");
+for (let p = 1; p <= 12; p++) pageSelect.add(new Option(String(p), String(p)));
+pageSelect.addEventListener("change", () => {
+  if (!document.body.classList.contains("writable")) return;
+  fetch(`/api/mems_page/${pageSelect.value}`, { method: "POST" }).catch(() => {});
 });
 
 connect();

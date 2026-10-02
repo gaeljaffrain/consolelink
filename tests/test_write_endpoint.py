@@ -19,8 +19,8 @@ def server():
     httpd.shutdown()
 
 
-def post(base, name):
-    req = urllib.request.Request(f"{base}/api/button/{name}", method="POST")
+def post(base, name, path=None):
+    req = urllib.request.Request(f"{base}{path or '/api/button/' + name}", method="POST")
     try:
         return urllib.request.urlopen(req).status
     except urllib.error.HTTPError as e:
@@ -38,9 +38,11 @@ def test_allowed_queues_the_button_code(server):
     mod, base = server
     mod.write_enabled = True
     mod.state["connected"] = True
-    for name, code in [("blackout", 0x57), ("solo", 0x56), ("ind1", 0x5F), ("ind2", 0x60)]:
+    for name, code in [("blackout", 0x57), ("solo", 0x56), ("ind1", 0x5F), ("ind2", 0x60),
+                       ("mode-int-a", 0x41), ("mode-int-b", 0x42), ("mode-int-dev", 0x40),
+                       ("mode-param-1", 0x43), ("mode-param-2", 0x44), ("mode-mems", 0x3F)]:
         assert post(base, name) == 204
-        assert mod.button_queue.get_nowait() == code
+        assert mod.button_queue.get_nowait() == ("tap", code)
 
 
 def test_unknown_button_and_disconnected(server):
@@ -49,4 +51,36 @@ def test_unknown_button_and_disconnected(server):
     assert post(base, "nope") == 404
     mod.state["connected"] = False
     assert post(base, "blackout") == 503
+    assert mod.button_queue.empty()
+
+
+def test_bump_and_page_requests_queue_events(server):
+    mod, base = server
+    mod.write_enabled = True
+    mod.state["connected"] = True
+    for path, event in [("/api/bump/1/press", ("press", 0)),
+                        ("/api/bump/24/keepalive", ("keepalive", 23)),
+                        ("/api/bump/12/release", ("release", 11)),
+                        ("/api/mems_page/1", ("page", 1)),
+                        ("/api/mems_page/12", ("page", 12))]:
+        assert post(base, None, path) == 204
+        assert mod.button_queue.get_nowait() == event
+
+
+def test_bump_and_page_ranges_and_gates(server):
+    mod, base = server
+    for path in ["/api/bump/0/press", "/api/bump/25/press", "/api/bump/x/press",
+                 "/api/bump/1/toggle", "/api/mems_page/0", "/api/mems_page/13",
+                 "/api/mems_page/-1"]:
+        mod.write_enabled = True
+        mod.state["connected"] = True
+        assert post(base, None, path) == 404, path
+    assert mod.button_queue.empty()
+    mod.write_enabled = False
+    assert post(base, None, "/api/bump/1/press") == 403
+    assert post(base, None, "/api/mems_page/2") == 403
+    mod.write_enabled = True
+    mod.state["connected"] = False
+    assert post(base, None, "/api/bump/1/press") == 503
+    assert post(base, None, "/api/mems_page/2") == 503
     assert mod.button_queue.empty()

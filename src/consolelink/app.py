@@ -131,14 +131,79 @@ _last_logged_selection = None
 _last_logged_intensities = {mode: [0] * 24 for mode in INTENSITY_MODES}
 _t_start = time.time()
 
-# Console button presses requested over HTTP (POST /api/button/<name>), sent by the USB poll thread
-# -- the only thread that touches the device -- between idle polls.
+# Console button taps requested over HTTP (POST /api/button/<name>), sent by the USB poll thread
+# -- the only thread that touches the device -- between idle polls. The fader-mode buttons are
+# taps too: the console acts on the press edge.
 BUTTONS = {"blackout": sfl.BUTTON_BLACKOUT, "solo": sfl.BUTTON_SOLO,
-           "ind1": sfl.BUTTON_IND1, "ind2": sfl.BUTTON_IND2}
+           "ind1": sfl.BUTTON_IND1, "ind2": sfl.BUTTON_IND2,
+           "mode-int-a": sfl.BUTTON_MODE_INT_A, "mode-int-b": sfl.BUTTON_MODE_INT_B,
+           "mode-int-dev": sfl.BUTTON_MODE_INT_DEV, "mode-param-1": sfl.BUTTON_MODE_PARAM_1,
+           "mode-param-2": sfl.BUTTON_MODE_PARAM_2, "mode-mems": sfl.BUTTON_MODE_MEMS}
 # Set from --allow-write in main(). Off by default: writing is refused (403) and the page's
 # buttons stay inert, since the server has no authentication and listens on every interface.
 write_enabled = False
+# Events for the poll thread: ("tap", code), ("press", code), ("keepalive", code), ("release", code),
+# ("page", n).
 button_queue = queue.Queue()
+
+# A Bump button is held, not tapped (INT modes: the channel stays bumped for as long as the
+# button is down), so the page sends press and release separately -- and sends a keepalive
+# every ~250 ms. The console never releases a button by itself (a bump stays on
+# if the USB cable is pulled mid-press), so HeldButtons releases for the client when the
+# keepalive stops (BUMP_LEASE: a phone off Wi-Fi, a closed tab), when a hold runs past
+# BUMP_MAX_HOLD, and on shutdown.
+BUMP_LEASE = 0.75
+BUMP_MAX_HOLD = 30.0
+
+
+class HeldButtons:
+    """Buttons currently pressed on the console, owned by the poll thread. `clock` is injectable
+    so the timing can be tested without sleeping."""
+
+    def __init__(self, link, clock=time.monotonic):
+        self.link = link
+        self.clock = clock
+        self.held = {}  # code -> {"since", "seen", "release"}
+
+    def press(self, code):
+        """A press from the client. Pressed again before the release went out, it is one
+        continuous hold."""
+        now = self.clock()
+        h = self.held.get(code)
+        if h is None:
+            if self.link.send_button(code, True):
+                self.held[code] = {"since": now, "seen": now, "release": False}
+        else:
+            h["seen"] = now
+            h["release"] = False
+
+    def keepalive(self, code):
+        """The client still holds `code`. Refresh-only, never a new press: a keepalive that
+        was in flight when the release arrived must not re-press the button."""
+        h = self.held.get(code)
+        if h is not None:
+            h["seen"] = self.clock()
+
+    def release(self, code):
+        h = self.held.get(code)
+        if h is not None:
+            h["release"] = True
+
+    def service(self):
+        """Send the releases that are due. The press is not stretched: the console ignores one
+        shorter than ~0.15 s, and how long to press is up to the user."""
+        now = self.clock()
+        for code, h in list(self.held.items()):
+            due = h["release"] or now - h["seen"] > BUMP_LEASE or now - h["since"] > BUMP_MAX_HOLD
+            if due:
+                self.link.send_button(code, False)
+                del self.held[code]
+
+    def release_all(self):
+        for code in list(self.held):
+            self.link.send_button(code, False)
+        self.held.clear()
+
 
 # Set from --artnet in main(): an artnet.ArtNetSender fed with every DMX snapshot, or None.
 artnet_sender = None
@@ -412,6 +477,7 @@ def poll_forever(stop_event):
             elif debug:
                 print(f"[consolelink] proactive {label} request got no reply", file=sys.stderr)
 
+        held = HeldButtons(link)
         consecutive_write_fails = 0
         needs_reset = False
         good_headers = 0
@@ -430,10 +496,20 @@ def poll_forever(stop_event):
 
             while True:
                 try:
-                    code = button_queue.get_nowait()
+                    kind, arg = button_queue.get_nowait()
                 except queue.Empty:
                     break
-                link.press_button(code)
+                if kind == "tap":
+                    link.press_button(arg)
+                elif kind == "press":
+                    held.press(arg)
+                elif kind == "keepalive":
+                    held.keepalive(arg)
+                elif kind == "release":
+                    held.release(arg)
+                elif kind == "page":
+                    link.send_mems_page(arg)
+            held.service()
 
             if not link.write_header(0, 0, (0, 0, 0, 0)):
                 consecutive_write_fails += 1
@@ -513,6 +589,7 @@ def poll_forever(stop_event):
                 log_capture("payload", obj_type, data)
                 handle_payload(obj_type, data)
 
+        held.release_all()
         update_state(connected=False, device=None)
         if capture_f:
             capture_f.close()
@@ -530,6 +607,11 @@ def poll_forever(stop_event):
                       file=sys.stderr)
         usb.util.dispose_resources(dev)
         time.sleep(1.0)
+
+
+def _int_in_range(text, lo, hi):
+    """int(text) if it is a plain decimal in lo..hi, else None."""
+    return int(text) if text.isdecimal() and lo <= int(text) <= hi else None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -563,9 +645,10 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
-        prefix = "/api/button/"
-        name = self.path[len(prefix):] if self.path.startswith(prefix) else None
-        if name not in BUTTONS:
+        """POST /api/button/<name> (tap), /api/bump/<1-24>/press|keepalive|release (hold) and
+        /api/mems_page/<1-12>. All need --allow-write and a connected console."""
+        event = self._parse_write_request()
+        if event is None:
             self.send_response(404)
             self.end_headers()
             return
@@ -579,9 +662,25 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(503)
             self.end_headers()
             return
-        button_queue.put(BUTTONS[name])
+        button_queue.put(event)
         self.send_response(204)
         self.end_headers()
+
+    def _parse_write_request(self):
+        """The queue event for self.path, or None if it isn't a valid write request."""
+        parts = self.path.strip("/").split("/")
+        if len(parts) == 3 and parts[:2] == ["api", "button"] and parts[2] in BUTTONS:
+            return ("tap", BUTTONS[parts[2]])
+        if (len(parts) == 4 and parts[:2] == ["api", "bump"]
+                and parts[3] in ("press", "keepalive", "release")):
+            fader = _int_in_range(parts[2], 1, sfl.BUMP_COUNT)
+            if fader is not None:
+                return (parts[3], sfl.bump_code(fader))
+        if len(parts) == 3 and parts[:2] == ["api", "mems_page"]:
+            page = _int_in_range(parts[2], 1, sfl.MEMS_PAGE_COUNT)
+            if page is not None:
+                return ("page", page)
+        return None
 
     def _serve_events(self):
         """Server-Sent Events: push the current state every time it changes (or at
@@ -645,7 +744,8 @@ def main():
                          help="Don't start the web server; just poll the console (use with "
                               "--debug, --capture and/or --artnet).")
     parser.add_argument("--allow-write", action="store_true",
-                         help="Let the web page press console buttons (BlackOut, Solo, Ind 1/2). "
+                         help="Let the web page press console buttons (BlackOut, Solo, Ind 1/2, "
+                              "the fader-mode buttons, the Bump buttons) and pick the MEMS page. "
                               "Off by default: the server has no authentication, so anyone who "
                               "can reach its port could use it.")
     artnet.add_arguments(parser)
