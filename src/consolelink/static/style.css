@@ -452,7 +452,17 @@ body.writable #mode-pill { display: none; }
    full-width, with the label inside the light box. */
 body.writable [data-button],
 body.writable [data-bump] { cursor: pointer; }
-body.writable [data-bump] { touch-action: none; user-select: none; }
+body.writable [data-bump] { touch-action: none; }
+/* Long-pressing a button (e.g. Bump) on iOS would otherwise start a text selection / callout. */
+button,
+[data-button],
+[data-bump],
+.console-button {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
 .console-button {
   display: flex;
   flex-direction: column;
