@@ -95,7 +95,8 @@ ipconfig                 # Windows (look for "IPv4 Address" under your Wi-Fi or 
 - `--no-web`: don't start the web server, just poll the console. Needs at least one of `--debug`,
   `--capture`, `--artnet`.
 - `--allow-write`: let the web page control the console: BlackOut, Solo, Ind 1/2, the bump
-  buttons (press and hold the LED under a fader) and the MEMS page. Off by default. There is no
+  buttons (press and hold the LED under a fader), the MEMS page, and the 24 faders, MASTER and BUMPS (drag a bar).
+  Off by default. There is no
   authentication, so anyone who can reach the port can use it -- enable it only on a network
   you trust.
 - `--artnet [DEST]`: send both DMX universes as Art-Net to `DEST` (an IP address, or `broadcast`).

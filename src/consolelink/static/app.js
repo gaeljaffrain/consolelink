@@ -52,7 +52,7 @@ function buildPhysicalFaderMeters() {
     f.id = "physfader-" + i;
     f.innerHTML = `
       <div class="meter-label">${i}</div>
-      <div class="value-row">
+      <div class="value-row" data-fader="${i}">
         <div class="track"><div class="fill" style="height:0%"></div></div>
         <div class="val">0</div>
       </div>
@@ -657,6 +657,56 @@ document.querySelectorAll("[data-bump]").forEach((el) => {
 window.addEventListener("blur", releaseAllBumps);
 window.addEventListener("pagehide", releaseAllBumps);
 document.addEventListener("visibilitychange", () => { if (document.hidden) releaseAllBumps(); });
+
+// Dragging a fader's bar (the 24 faders, MASTER, BUMPS) moves the console's fader (with --allow-write). The page doesn't
+// move the bar itself: it follows the level the console reports, like the buttons. Sends are
+// throttled to 25 ms (SmartSoft sends one every ~90 ms; the console's USB poll takes ~15 ms) and
+// the last position always goes out on release, so the console never keeps a stale level.
+const FADER_SEND_MS = 25;
+function postFader(fader, value) {
+  fetch(`/api/fader/${fader}/${value}`, { method: "POST" }).catch(() => {});
+}
+function makeDraggableFader(el, fader) {
+  const track = el.querySelector(".track");
+  let dragging = false, wanted = null, sent = null, timer = null;
+  const flush = () => {
+    clearTimeout(timer);
+    timer = null;
+    if (wanted !== null && wanted !== sent) {
+      sent = wanted;
+      postFader(fader, wanted);
+      timer = setTimeout(() => { timer = null; flush(); }, FADER_SEND_MS);
+    }
+  };
+  const move = (e) => {
+    const r = track.getBoundingClientRect();
+    wanted = Math.round(255 * Math.min(1, Math.max(0, (r.bottom - e.clientY) / r.height)));
+    if (!timer) flush();
+  };
+  const end = () => {
+    if (!dragging) return;
+    dragging = false;
+    flush();
+    sent = wanted = null;
+  };
+  el.addEventListener("pointerdown", (e) => {
+    if (!document.body.classList.contains("writable")) return;
+    e.preventDefault();
+    el.setPointerCapture(e.pointerId);  // keep the drag when the pointer leaves the thin bar
+    dragging = true;
+    move(e);
+  });
+  el.addEventListener("pointermove", (e) => { if (dragging) move(e); });
+  // touch-action alone didn't stop iOS Safari from scrolling the page under the finger, so the
+  // touch events are cancelled too (non-passive, or preventDefault is ignored).
+  ["touchstart", "touchmove"].forEach(t => el.addEventListener(t, (e) => {
+    if (document.body.classList.contains("writable")) e.preventDefault();
+  }, { passive: false }));
+  ["pointerup", "pointercancel"].forEach(t => el.addEventListener(t, end));
+}
+document.querySelectorAll("[data-fader]").forEach((el) => {
+  makeDraggableFader(el, el.dataset.fader);  // "1".."24", "master" or "bumps"
+});
 
 // MEMS page select (SmartSoft's PAGE dropdown), shown only in MEMS mode (see style.css); without
 // --allow-write the read-only badge shows the page instead. The console confirms with its own

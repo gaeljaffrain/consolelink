@@ -145,6 +145,11 @@ write_enabled = False
 # Events for the poll thread: ("tap", code), ("press", code), ("keepalive", code), ("release", code),
 # ("page", n).
 button_queue = queue.Queue()
+# Fader moves requested over HTTP (POST /api/fader/<1-24|master|bumps>/<0-255>): only the latest
+# value per fader matters, so a fast drag overwrites instead of queueing, like SmartSoft's own
+# send queue.
+fader_writes = {}
+fader_writes_lock = threading.Lock()
 
 # A Bump button is held, not tapped (INT modes: the channel stays bumped for as long as the
 # button is down), so the page sends press and release separately -- and sends a keepalive
@@ -509,6 +514,11 @@ def poll_forever(stop_event):
                     held.release(arg)
                 elif kind == "page":
                     link.send_mems_page(arg)
+            with fader_writes_lock:
+                pending_faders = list(fader_writes.items())
+                fader_writes.clear()
+            for fader, value in pending_faders:
+                link.send_fader(fader, value)
             held.service()
 
             if not link.write_header(0, 0, (0, 0, 0, 0)):
@@ -645,8 +655,9 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
-        """POST /api/button/<name> (tap), /api/bump/<1-24>/press|keepalive|release (hold) and
-        /api/mems_page/<1-12>. All need --allow-write and a connected console."""
+        """POST /api/button/<name> (tap), /api/bump/<1-24>/press|keepalive|release (hold),
+        /api/fader/<1-24|master|bumps>/<0-255> and /api/mems_page/<1-12>. All need
+        --allow-write and a connected console."""
         event = self._parse_write_request()
         if event is None:
             self.send_response(404)
@@ -662,7 +673,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(503)
             self.end_headers()
             return
-        button_queue.put(event)
+        if event[0] == "fader":
+            with fader_writes_lock:
+                fader_writes[event[1]] = event[2]
+        else:
+            button_queue.put(event)
         self.send_response(204)
         self.end_headers()
 
@@ -676,6 +691,12 @@ class Handler(BaseHTTPRequestHandler):
             fader = _int_in_range(parts[2], 1, sfl.BUMP_COUNT)
             if fader is not None:
                 return (parts[3], sfl.bump_code(fader))
+        if len(parts) == 4 and parts[:2] == ["api", "fader"]:
+            fader = {"master": sfl.FADER_MASTER, "bumps": sfl.FADER_BUMPS}.get(
+                parts[2], _int_in_range(parts[2], 1, sfl.FADER_COUNT))
+            value = _int_in_range(parts[3], 0, 255)
+            if fader is not None and value is not None:
+                return ("fader", fader, value)
         if len(parts) == 3 and parts[:2] == ["api", "mems_page"]:
             page = _int_in_range(parts[2], 1, sfl.MEMS_PAGE_COUNT)
             if page is not None:

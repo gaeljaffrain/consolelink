@@ -141,6 +141,20 @@ BUTTON_MODE_MEMS = 0x3F
 # than about 0.15 s (taps of 78-109 ms did nothing; 0.235 s worked). In MEMS the press fires the
 # memory (the fader sets its level) and holding does nothing extra.
 BUMP_COUNT = 24
+# A virtual fader move is a type=0x14 write with data [kind=0][fader-1][value][previous value]:
+# SmartSoft sends fader 1 as 00 00 vv pp and fader 24 as 00 17 vv pp, one message about every
+# 0.09 s while dragging, each pp being the vv it sent last for that fader (0 for the first move
+# of a session). The console's type=0x0e readback then reports the written value.
+FADER_COUNT = 24
+# Wire ids 24-27 are the console's four other analog controls. Probed on the console (a write
+# to each id moved this control): 24 Master, 25 Bumps master, 26 Crossfader Live, 27 Crossfader
+# Next. send_fader() numbers them like faders 25-28. Live/Next are scene levels that renormalize
+# after a completed crossfade, so they aren't exposed to the page.
+FADER_MASTER = 25
+FADER_BUMPS = 26
+FADER_LIVE = 27
+FADER_NEXT = 28
+CONTROL_COUNT = 28
 # SmartSoft's MEMS page select is a type=0x27 GUI request, subtype 0x0a, [page-1][0]; the
 # console answers with type=0x17 (data[2] = the 0-based page), then type=0x0e.
 MEMS_PAGE_COUNT = 12
@@ -567,6 +581,7 @@ class ConsoleLink:
         self.write_errors = 0
         self.read_timeouts = 0
         self.next_seq = 2  # seq 0 and 1 are used by send_gui_request() at connect
+        self.fader_last = [0] * CONTROL_COUNT  # last value sent per fader: the "previous" byte
 
     def write_header(self, msg_type, payload_len=0, state=(0, 0, 0, 0)):
         try:
@@ -648,6 +663,23 @@ class ConsoleLink:
         if not self.write_header(1, 4 + len(data)):
             return False
         return self.write_payload(seq, 0x14, data)
+
+    def send_fader(self, fader, value):
+        """Move fader `fader` (1-24) to `value` (0-255) as if its physical fader were moved: one
+        type=0x14 payload [kind=0][fader-1][value][previous value sent for this fader]."""
+        if not 1 <= fader <= CONTROL_COUNT:
+            raise ValueError(f"fader must be 1-{CONTROL_COUNT}, got {fader}")
+        if not 0 <= value <= 255:
+            raise ValueError(f"value must be 0-255, got {value}")
+        seq = self.next_seq
+        self.next_seq = (seq + 1) & 0xFF
+        data = bytes([0, fader - 1, value, self.fader_last[fader - 1]])
+        if not self.write_header(1, 4 + len(data)):
+            return False
+        if not self.write_payload(seq, 0x14, data):
+            return False
+        self.fader_last[fader - 1] = value
+        return True
 
     def send_mems_page(self, page):
         """Select MEMS page `page` (1-12), like the PAGE dropdown in SmartSoft: one type=0x27

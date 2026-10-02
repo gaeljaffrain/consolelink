@@ -84,3 +84,30 @@ def test_bump_and_page_ranges_and_gates(server):
     assert post(base, None, "/api/bump/1/press") == 503
     assert post(base, None, "/api/mems_page/2") == 503
     assert mod.button_queue.empty()
+
+
+def test_fader_moves_coalesce_to_the_latest_value(server):
+    mod, base = server
+    mod.write_enabled = True
+    mod.state["connected"] = True
+    for path in ["/api/fader/1/10", "/api/fader/1/200", "/api/fader/24/0"]:
+        assert post(base, None, path) == 204
+    assert post(base, None, "/api/fader/master/255") == 204
+    assert post(base, None, "/api/fader/bumps/7") == 204
+    assert mod.fader_writes == {1: 200, 24: 0, 25: 255, 26: 7}
+    assert mod.button_queue.empty()
+
+
+def test_fader_ranges_and_gates(server):
+    mod, base = server
+    mod.write_enabled = True
+    mod.state["connected"] = True
+    for path in ["/api/fader/0/5", "/api/fader/29/5", "/api/fader/1/256", "/api/fader/1/-1",
+                 "/api/fader/x/5", "/api/fader/1/x", "/api/fader/live/5", "/api/fader/25/5"]:
+        assert post(base, None, path) == 404, path
+    mod.write_enabled = False
+    assert post(base, None, "/api/fader/1/5") == 403
+    mod.write_enabled = True
+    mod.state["connected"] = False
+    assert post(base, None, "/api/fader/1/5") == 503
+    assert mod.fader_writes == {}

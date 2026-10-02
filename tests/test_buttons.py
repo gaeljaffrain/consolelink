@@ -83,3 +83,40 @@ def test_mems_page_select_matches_smartsoft():
     for bad in (0, 13):
         with pytest.raises(ValueError):
             link.send_mems_page(bad)
+
+
+def test_fader_move_matches_smartsoft():
+    """SmartSoft dragging fader 1 up from 0 and fader 24 down to 0: [0][fader-1][value][previous]."""
+    link, dev = make_link()
+    for fader, value in ((1, 0x17), (1, 0x3A), (1, 0x4F), (24, 0x02), (24, 0xFF), (24, 0x00)):
+        assert link.send_fader(fader, value)
+    payloads = [w for w in dev.writes if w[:2] != bytes.fromhex("0100")]
+    assert payloads == [
+        bytes.fromhex("02" "0400" "14" "00001700"),  # fader 1: 0x17, previous 0
+        bytes.fromhex("03" "0400" "14" "00003a17"),  # previous = the 0x17 just sent
+        bytes.fromhex("04" "0400" "14" "00004f3a"),
+        bytes.fromhex("05" "0400" "14" "00170200"),  # fader 24 has its own previous
+        bytes.fromhex("06" "0400" "14" "0017ff02"),
+        bytes.fromhex("07" "0400" "14" "001700ff"),
+    ]
+    assert dev.writes[0] == bytes.fromhex("010008000000000000000000")  # msgType=1, payloadLen=8
+
+
+def test_fader_move_rejects_bad_arguments():
+    link, dev = make_link()
+    for fader, value in ((0, 0), (29, 0), (1, -1), (1, 256)):
+        with pytest.raises(ValueError):
+            link.send_fader(fader, value)
+    assert dev.writes == []
+
+
+def test_special_controls_are_wire_ids_24_to_27():
+    """Probed on the console: a write to each id moved Master, Bumps, Live and Next in order."""
+    assert (sfl.FADER_MASTER, sfl.FADER_BUMPS, sfl.FADER_LIVE, sfl.FADER_NEXT) == (25, 26, 27, 28)
+    link, dev = make_link()
+    assert link.send_fader(sfl.FADER_MASTER, 0x80)
+    assert link.send_fader(sfl.FADER_BUMPS, 0x40)
+    assert [w for w in dev.writes if w[:2] != bytes.fromhex("0100")] == [
+        bytes.fromhex("02" "0400" "14" "00188000"),  # Master: id 24
+        bytes.fromhex("03" "0400" "14" "00194000"),  # Bumps: id 25
+    ]
