@@ -106,7 +106,9 @@ state = {
     "independent2_clicked": None,  # separate bit from the value above
     "solo": None,  # None until the first type=0x16 message; then "on"/"off"/"blinking"
     "blackout": None,
-    "indicator_lights": {"solo": None, "blackout": None},  # the console's own Solo/BlackOut
+    "go_mode": None,   # the MEMS-only GO MODE / INT ONLY LEDs, same states (off outside MEMS)
+    "int_only": None,
+    "indicator_lights": {"solo": None, "blackout": None, "go_mode": None, "int_only": None},  # the console's own Solo/BlackOut
     # LED colors, same shape as physical_fader_lights -- see decode_0x16_indicator_lights
     "lcd": None,  # None until the first type=0x15; then the console's 4 LCD lines,
     # [LCD 1 line 1, LCD 1 line 2, LCD 2 line 1, LCD 2 line 2] -- see decode_0x15
@@ -140,7 +142,8 @@ BUTTONS = {"blackout": sfl.BUTTON_BLACKOUT, "solo": sfl.BUTTON_SOLO,
            "ind1": sfl.BUTTON_IND1, "ind2": sfl.BUTTON_IND2,
            "mode-int-a": sfl.BUTTON_MODE_INT_A, "mode-int-b": sfl.BUTTON_MODE_INT_B,
            "mode-int-dev": sfl.BUTTON_MODE_INT_DEV, "mode-param-1": sfl.BUTTON_MODE_PARAM_1,
-           "mode-param-2": sfl.BUTTON_MODE_PARAM_2, "mode-mems": sfl.BUTTON_MODE_MEMS}
+           "mode-param-2": sfl.BUTTON_MODE_PARAM_2, "mode-mems": sfl.BUTTON_MODE_MEMS,
+           "int-only": sfl.BUTTON_INT_ONLY, "go-mode": sfl.BUTTON_GO_MODE}
 # Set from --allow-write in main(). Off by default: writing is refused (403) and the page's
 # buttons stay inert, since the server listens on every interface.
 write_enabled = False
@@ -315,8 +318,7 @@ def handle_payload(obj_type, data):
     # Solo/Blackout indicators and LED colors, plus the 24 per-fader Bump-LED blocks in the same payload
     elif obj_type == 0x16:
         flags = sfl.decode_0x16_indicators(data)
-        update = {k: v for k, v in (("solo", flags["solo"]), ("blackout", flags["blackout"]))
-                  if v is not None}
+        update = {k: v for k, v in flags.items() if v is not None}
         if debug and update:
             print(f"[solo/blackout] t={time.time() - _t_start:7.3f}  {update}", file=sys.stderr)
         if update:

@@ -96,8 +96,8 @@ ipconfig                 # Windows (look for "IPv4 Address" under your Wi-Fi or 
   `--capture`, `--artnet`.
 - `--allow-write PASSWORD`: let the web page control the console: BlackOut, Solo, Ind 1/2, the bump
   buttons (press and hold the LED under a fader), the MEMS page, and the 24 faders, MASTER, BUMPS,
-  LIVE and NEXT (drag a bar). Off by default. Every write must carry `PASSWORD`: type it once in the
-  page's settings ("Control password", kept in that browser) and the controls unlock. The password
+  LIVE and NEXT (drag a bar), and in MEMS mode the INT ONLY and GO MODE buttons. Off by default.
+  Every write must carry `PASSWORD`: type it once in the page's settings ("Control password", kept in that browser) and the controls unlock. The password
   travels in the URL over plain HTTP, so it keeps casual users out and nothing more: enable writing
   only on a network you trust. On a touch screen a fader must be tapped (it gets an outline) before it
   drags, so scrolling the page doesn't move faders.

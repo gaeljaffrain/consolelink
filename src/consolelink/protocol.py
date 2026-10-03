@@ -126,6 +126,12 @@ BUTTON_SOLO = 0x56
 BUTTON_BLACKOUT = 0x57
 BUTTON_IND1 = 0x5F
 BUTTON_IND2 = 0x60
+# MEMS-only toggles, SmartSoft's "FADERS: INT ONLY" and "BUMPS: GO MODE": a press flips each, like
+# Solo/BlackOut. Their console LEDs are type=0x16 blocks (blue = on): GO MODE at offset 361, INT
+# MODE at 373. In any other fader mode both LEDs read off; back in MEMS the console shows its
+# remembered state again.
+BUTTON_INT_ONLY = 0x3E
+BUTTON_GO_MODE = 0x3C
 BUTTON_RELEASE_DELAY = 0.12  # SmartSoft sends the release 0.12-0.17 s after the press
 # Fader-mode buttons. Edge-triggered like the toggles: the console switches mode on the press
 # and ignores the release; the mode comes back as type=0x17 about 0.1 s later.
@@ -505,8 +511,9 @@ def decode_0x16_indicators(data):
     not from a hardcoded blink-specific byte pattern -- this correctly flags BlackOut blinking
     too (e.g. the console's own "Master pulled down while BlackOut is off" warning) even though
     BlackOut's own blink colors have never been directly observed on the wire; only Solo's has.
-    Returns {"solo": "on"|"off"|"blinking"|None, "blackout": ...} -- None only if data is too
-    short to contain these offsets at all.
+    The MEMS-only INT ONLY (373) and GO MODE (361) LEDs use the same block shape (blue = on).
+    Returns {"solo": "on"|"off"|"blinking"|None, "blackout": ..., "go_mode": ..., "int_only": ...}
+    -- None only if data is too short to contain these offsets at all.
     """
     def read(lo, hi, on_color):
         chunk = data[lo:hi]
@@ -518,9 +525,12 @@ def decode_0x16_indicators(data):
             return "blinking"
         return "on" if half1 == on_color else "off"
 
+    blue = bytes.fromhex("0000ff")
     return {
         "solo": read(517, 523, b"\xff\xff\xff"),
-        "blackout": read(523, 529, bytes.fromhex("0000ff")),
+        "blackout": read(523, 529, blue),
+        "go_mode": read(361, 367, blue),
+        "int_only": read(373, 379, blue),
     }
 
 
@@ -554,10 +564,11 @@ def decode_0x16_indicator_lights(data):
     `ff ff ff`, BlackOut on is blue `00 00 ff`, BlackOut's blink is `37 37 ff` / `0a 0a 0a`,
     idle is `0a 0a 0a` for both.
 
-    Returns {"solo": ..., "blackout": ...}, each in decode_0x16_bump_catch's shape (None if
-    data is too short).
+    Returns {"solo", "blackout", "go_mode", "int_only"}, each in decode_0x16_bump_catch's shape
+    (None if data is too short).
     """
-    return {"solo": _rgb_pair(data, 517), "blackout": _rgb_pair(data, 523)}
+    return {"solo": _rgb_pair(data, 517), "blackout": _rgb_pair(data, 523),
+            "go_mode": _rgb_pair(data, 361), "int_only": _rgb_pair(data, 373)}
 
 
 def _rgb_pair(data, off):

@@ -9,7 +9,7 @@
 </head>
 <body>
   <div class="title-row">
-    <h1>ConsoleLink</h1>
+    <h1><img class="logo" src="favicon.svg" alt="" width="28" height="28">ConsoleLink</h1>
     <button class="gear-btn" id="settings-btn" type="button" aria-label="Settings"
             aria-haspopup="dialog" aria-controls="settings-overlay" aria-expanded="false">
       <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
@@ -140,8 +140,14 @@
     <div class="section-title">FADERS
       <div class="mode-pill" id="mode-pill">—</div>
       <select class="mode-pill" id="mode-select" aria-label="Fader mode"></select>
-      <label class="page-control">PAGE <select id="mems-page"></select></label>
-      <div class="page-badge" id="mems-page-badge">PAGE —</div>
+      <label class="page-control"><select id="mems-page" aria-label="MEMS page"></select></label>
+      <div class="page-badge" id="mems-page-badge">Page —</div>
+      <div class="mems-modes">
+        <div class="console-button placeholder" id="btn-int-only" data-button="int-only"
+             title="FADERS: INT ONLY"><div class="light">Int Only</div></div>
+        <div class="console-button placeholder" id="btn-go-mode" data-button="go-mode"
+             title="BUMPS: GO MODE"><div class="light">Go Mode</div></div>
+      </div>
     </div>
     <div class="intensity-row" id="physical-faders"></div>
   </div>

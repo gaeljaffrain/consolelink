@@ -120,3 +120,14 @@ def test_special_controls_are_wire_ids_24_to_27():
         bytes.fromhex("02" "0400" "14" "00188000"),  # Master: id 24
         bytes.fromhex("03" "0400" "14" "00194000"),  # Bumps: id 25
     ]
+
+
+def test_mems_mode_buttons_match_smartsoft():
+    """SmartSoft's INT ONLY and GO MODE clicks: a press (01) then a release (00) of codes 3e / 3c."""
+    link, dev = make_link()
+    for code in (sfl.BUTTON_INT_ONLY, sfl.BUTTON_GO_MODE):
+        assert link.send_button(code, True) and link.send_button(code, False)
+    assert [w for w in dev.writes if w[:2] != bytes.fromhex("0100")] == [
+        bytes.fromhex("02" "0300" "14" "013e01"), bytes.fromhex("03" "0300" "14" "013e00"),
+        bytes.fromhex("04" "0300" "14" "013c01"), bytes.fromhex("05" "0300" "14" "013c00"),
+    ]

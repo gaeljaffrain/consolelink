@@ -308,12 +308,13 @@ function paramFaderLabel(mode, i, entry) {
 
 // INT A/B/DEV show the real patched channel name (state.labels[mode][i]) instead of a generic
 // label -- blank, not "?", when the console hasn't sent one for that slot yet. MEMS names come
-// from the console's per-page memory names, state.labels["MEMS"][memsPage][i].
+// from the console's per-page memory names, state.labels["MEMS"][memsPage][i]; an unnamed or empty
+// slot is blank too.
 function physicalFaderLabelLines(mode, i, labels, memsPage) {
   if (MODES.includes(mode)) return labels?.[mode]?.[i] || ["", "", ""];
   if (mode === "PARAM 1") return paramFaderLabel(mode, i, PARAM_1_LABELS[i - 1]);
   if (mode === "PARAM 2") return paramFaderLabel(mode, i, PARAM_2_LABELS[i - 1]);
-  if (mode === "MEMS") return labels?.["MEMS"]?.[memsPage]?.[i] || ["?", "", ""];
+  if (mode === "MEMS") return labels?.["MEMS"]?.[memsPage]?.[i] || ["", "", ""];
   return ["", "", ""];
 }
 
@@ -339,7 +340,7 @@ function setIndependent(meterEl, btnEl, value, clicked, lines) {
   const known = clicked !== null;
   btnEl.classList.toggle("placeholder", !known);
   btnEl.classList.toggle("on", known && clicked === true);
-  setName(btnEl.querySelector(".light"), known ? lines : ["?", "", ""]);
+  setName(btnEl.querySelector(".light"), known ? lines : ["", "", ""]);
 }
 
 function rgbCss(color) {
@@ -445,6 +446,11 @@ function applyPalette() {
     document.documentElement.style.setProperty(token, softenColor(paletteBase[token])));
 }
 
+// A Bump LED with nothing to show reads 00 in the INT modes but 0a in PARAM 1/2 and MEMS (a faint
+// glow, the console's idle level): both are "off", so the buttons look alike in every mode. A MEMS
+// slot with a recorded memory is 46, well above this.
+const LED_IDLE_MAX = 0x0a;
+
 // light is null until the fader's first type=0x16 update, then either
 // {blinking:true, color_a, color_b} (flashing toward its stored value) or {blinking:false, color}
 // -- [r, g, b] straight from the console (green, or red in MEMS), through softenColor().
@@ -452,7 +458,7 @@ function setPhysicalFader(i, value, light, mode, labels, memsPage) {
   const meterEl = document.getElementById("physfader-" + i);
   setBar(meterEl, value, true);
   setName(meterEl, physicalFaderLabelLines(mode, i, labels, memsPage));
-  const dark = light && !Math.max(...(light.blinking ? [...light.color_a, ...light.color_b] : light.color));
+  const dark = light && Math.max(...(light.blinking ? [...light.color_a, ...light.color_b] : light.color)) <= LED_IDLE_MAX;
   setIndicator(document.getElementById("physfader-" + i + "-light"),
     !light ? null : dark ? "off" : light.blinking ? "blinking" : "on", light, true);
   document.getElementById("physfader-" + i + "-light").style
@@ -550,7 +556,7 @@ function render(state) {
   setBar(document.getElementById("xfade-next"), state.crossfader_next);
 
   document.getElementById("section-physical").classList.toggle("mems", state.fader_mode === "MEMS");
-  document.getElementById("mems-page-badge").textContent = "PAGE " + (state.mems_page ?? "—");
+  document.getElementById("mems-page-badge").textContent = "Page " + (state.mems_page ?? "—");
   if (state.fader_mode === "MEMS" && state.mems_page && document.activeElement !== pageSelect) {
     pageSelect.value = String(state.mems_page);
   }
@@ -572,6 +578,10 @@ function render(state) {
   setIndicator(document.getElementById("btn-solo"), state.solo, state.indicator_lights?.solo, true);
   setIndicator(document.getElementById("btn-blackout"), state.blackout,
     state.indicator_lights?.blackout, true);
+  setIndicator(document.getElementById("btn-int-only"), state.int_only,
+    state.indicator_lights?.int_only, true);
+  setIndicator(document.getElementById("btn-go-mode"), state.go_mode,
+    state.indicator_lights?.go_mode, true);
 
   setLcds(state.lcd);
 
@@ -822,7 +832,7 @@ modeSelect.addEventListener("change", () => {
 });
 
 const pageSelect = document.getElementById("mems-page");
-for (let p = 1; p <= 12; p++) pageSelect.add(new Option(String(p), String(p)));
+for (let p = 1; p <= 12; p++) pageSelect.add(new Option("Page " + p, String(p)));
 pageSelect.addEventListener("change", () => {
   if (!document.body.classList.contains("writable")) return;
   writePost(`/api/mems_page/${pageSelect.value}`).catch(() => {});

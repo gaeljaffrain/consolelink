@@ -42,7 +42,8 @@ def test_allowed_queues_the_button_code(server):
     mod.state["connected"] = True
     for name, code in [("blackout", 0x57), ("solo", 0x56), ("ind1", 0x5F), ("ind2", 0x60),
                        ("mode-int-a", 0x41), ("mode-int-b", 0x42), ("mode-int-dev", 0x40),
-                       ("mode-param-1", 0x43), ("mode-param-2", 0x44), ("mode-mems", 0x3F)]:
+                       ("mode-param-1", 0x43), ("mode-param-2", 0x44), ("mode-mems", 0x3F),
+                       ("int-only", 0x3E), ("go-mode", 0x3C)]:
         assert post(base, name) == 204
         assert mod.button_queue.get_nowait() == ("tap", code)
 
