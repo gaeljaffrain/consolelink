@@ -149,7 +149,7 @@ FADER_COUNT = 24
 # Wire ids 24-27 are the console's four other analog controls. Probed on the console (a write
 # to each id moved this control): 24 Master, 25 Bumps master, 26 Crossfader Live, 27 Crossfader
 # Next. send_fader() numbers them like faders 25-28. Live/Next are scene levels that renormalize
-# after a completed crossfade, so they aren't exposed to the page.
+# after a completed crossfade (the previous-value byte is then stale, which isn't known to matter).
 FADER_MASTER = 25
 FADER_BUMPS = 26
 FADER_LIVE = 27

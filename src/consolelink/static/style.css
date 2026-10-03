@@ -114,6 +114,11 @@ h1 {
 }
 .close-btn:hover { color: var(--text); }
 .setting { padding: 8px 0; }
+.pw-control { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; }
+.pw-control input { width: 150px; }
+.pw-control[hidden] { display: none; }
+.pw-status { flex: 1 0 100%; font-size: 12px; color: var(--dim); }
+.pw-status.bad { color: var(--accent-red); }
 .settings-foot {
   margin-top: 10px;
   padding-top: 10px;
@@ -310,6 +315,20 @@ body.writable #mode-pill { display: none; }
   overflow: hidden;
   position: relative;
 }
+/* The drag handle (added by makeDraggableFader in app.js): shown only while dragging, so the fill
+   underneath stays the console's reported level. */
+.meter .thumb {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--text);
+  box-shadow: 0 0 0 1px var(--bg);
+  display: none;
+  pointer-events: none;
+}
+.value-row.dragging .thumb { display: block; }
 .meter .fill {
   width: 100%;
   transition: height 80ms linear;
@@ -452,9 +471,16 @@ body.writable #mode-pill { display: none; }
    full-width, with the label inside the light box. */
 body.writable [data-button],
 body.writable [data-bump] { cursor: pointer; }
-body.writable [data-bump],
-body.writable [data-fader] { touch-action: none; }
-body.writable [data-fader] { cursor: ns-resize; }
+body.writable [data-bump] { touch-action: none; }
+/* A fader bar scrolls the page like anything else until a finger selects it (tap; app.js), then it
+   takes the touches. */
+body.writable [data-fader] { touch-action: pan-y; cursor: ns-resize; }
+body.writable [data-fader].armed { touch-action: none; }
+/* Selected by touch: a bright outline round the whole meter, so it is obvious which one is live. */
+.meter.armed {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--text), 0 0 10px var(--text);
+}
 /* Long-pressing a button (e.g. Bump) on iOS would otherwise start a text selection / callout. */
 button,
 [data-button],

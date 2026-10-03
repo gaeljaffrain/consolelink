@@ -472,12 +472,47 @@ function setLcds(lines) {
   });
 }
 
+// Writing (--allow-write PASSWORD): every write carries the password in the URL (?pw=). It is
+// typed once in the settings and kept in this browser; the server answers 401 to a wrong one, and
+// the page only turns its controls on (body.writable) once the server has accepted it.
+const PASSWORD_KEY = "consolelink.password";
+let controlPassword = "";
+try { controlPassword = localStorage.getItem(PASSWORD_KEY) || ""; } catch (e) { /* not persisted */ }
+let passwordOk = false, passwordChecked = false;
+function applyWritable() {
+  const enabled = lastState?.write_enabled === true;
+  document.body.classList.toggle("writable", enabled && passwordOk);
+  document.getElementById("pw-setting").hidden = !enabled;
+  const status = !enabled ? "" : !controlPassword ? "Enter the password to control the console."
+    : passwordOk ? "Controls unlocked." : "Wrong password.";
+  document.getElementById("pw-status").textContent = status;
+  document.getElementById("pw-status").classList.toggle("bad", enabled && !!controlPassword && !passwordOk);
+}
+async function checkPassword() {
+  passwordOk = false;
+  if (controlPassword && lastState?.write_enabled === true) {
+    try { passwordOk = (await writePost("/api/auth")).ok; } catch (e) { /* server unreachable */ }
+  }
+  applyWritable();
+}
+// POST a write request with the password. A 401 means the password was changed on the server
+// (or is wrong): lock the controls again.
+function writePost(path) {
+  return fetch(`${path}?pw=${encodeURIComponent(controlPassword)}`, { method: "POST" }).then((r) => {
+    if (r.status === 401 && passwordOk) { passwordOk = false; applyWritable(); }
+    return r;
+  });
+}
 let lastUpdate = 0;
 let lastState = null;  // re-rendered as-is when the saturation slider moves
 
 function render(state) {
   lastState = state;
-  document.body.classList.toggle("writable", state.write_enabled === true);
+  if (state.write_enabled === true && !passwordChecked) {
+    passwordChecked = true;
+    checkPassword();
+  }
+  applyWritable();
   const dot = document.getElementById("dot");
   const connText = document.getElementById("conn-text");
   dot.classList.toggle("ok", state.connected);
@@ -617,7 +652,7 @@ try {
 document.querySelectorAll("[data-button]").forEach((el) => {
   el.addEventListener("click", () => {
     if (!document.body.classList.contains("writable")) return;
-    fetch(`/api/button/${el.dataset.button}`, { method: "POST" }).catch(() => {});
+    writePost(`/api/button/${el.dataset.button}`).catch(() => {});
   });
 });
 
@@ -629,7 +664,7 @@ document.querySelectorAll("[data-button]").forEach((el) => {
 const BUMP_KEEPALIVE_MS = 250;
 const heldBumps = new Map();  // fader -> keepalive timer
 function postBump(fader, action) {
-  fetch(`/api/bump/${fader}/${action}`, { method: "POST" }).catch(() => {});
+  writePost(`/api/bump/${fader}/${action}`).catch(() => {});
 }
 function pressBump(fader) {
   if (heldBumps.has(fader) || !document.body.classList.contains("writable")) return;
@@ -658,17 +693,45 @@ window.addEventListener("blur", releaseAllBumps);
 window.addEventListener("pagehide", releaseAllBumps);
 document.addEventListener("visibilitychange", () => { if (document.hidden) releaseAllBumps(); });
 
-// Dragging a fader's bar (the 24 faders, MASTER, BUMPS) moves the console's fader (with --allow-write). The page doesn't
-// move the bar itself: it follows the level the console reports, like the buttons. Sends are
-// throttled to 25 ms (SmartSoft sends one every ~90 ms; the console's USB poll takes ~15 ms) and
-// the last position always goes out on release, so the console never keeps a stale level.
+// Dragging a fader's bar (the 24 faders, MASTER, BUMPS, LIVE, NEXT) moves the console's fader (with
+// --allow-write). The page doesn't move the bar itself: it follows the level the console reports,
+// like the buttons. Sends are throttled to 25 ms (SmartSoft sends one every ~90 ms; the console's
+// USB poll takes ~15 ms) and the last position always goes out on release, so the console never
+// keeps a stale level.
+//
+// On a touch screen a drag would otherwise fight with scrolling the page, so a finger must first
+// tap a fader to select it (bright outline); only the selected fader drags and blocks scrolling,
+// and tapping it again deselects it. A mouse or pen drags directly.
 const FADER_SEND_MS = 25;
+const THUMB_PX = 4;          // keep in step with .thumb's height in style.css
+const THUMB_LINGER_MS = 600;
+const TAP_SLOP_PX = 8;       // a touch that moves less than this and ends quickly is a tap
+const TAP_MAX_MS = 500;
+let armedFader = null;       // the touch-selected value-row, if any
+function setArmed(el, on) {
+  if (armedFader && armedFader !== el) armedFader.closest(".meter").classList.remove("armed");
+  armedFader?.classList.remove("armed");
+  armedFader = on ? el : null;
+  el.classList.toggle("armed", on);
+  el.closest(".meter").classList.toggle("armed", on);
+}
 function postFader(fader, value) {
-  fetch(`/api/fader/${fader}/${value}`, { method: "POST" }).catch(() => {});
+  writePost(`/api/fader/${fader}/${value}`).catch(() => {});
 }
 function makeDraggableFader(el, fader) {
   const track = el.querySelector(".track");
-  let dragging = false, wanted = null, sent = null, timer = null;
+  // The thumb shows where the finger is, instantly; the fill keeps showing the console's reported
+  // output (level x Live x Master), which lags the drag and can differ from it.
+  const thumb = document.createElement("div");
+  thumb.className = "thumb";
+  track.appendChild(thumb);
+  let dragging = false, wanted = null, sent = null, timer = null, hideTimer = null;
+  let tap = null;  // a touch that may turn into a tap, or (when selected) into a drag
+  const writable = () => document.body.classList.contains("writable");
+  const showThumb = (v) => {
+    const p = v / 255;
+    thumb.style.bottom = `calc(${p * 100}% - ${p * THUMB_PX}px)`;  // stays inside the track at both ends
+  };
   const flush = () => {
     clearTimeout(timer);
     timer = null;
@@ -681,32 +744,61 @@ function makeDraggableFader(el, fader) {
   const move = (e) => {
     const r = track.getBoundingClientRect();
     wanted = Math.round(255 * Math.min(1, Math.max(0, (r.bottom - e.clientY) / r.height)));
+    showThumb(wanted);
     if (!timer) flush();
+  };
+  const begin = (e) => {
+    dragging = true;
+    clearTimeout(hideTimer);
+    el.classList.add("dragging");
+    move(e);
   };
   const end = () => {
     if (!dragging) return;
     dragging = false;
     flush();
     sent = wanted = null;
+    // Leave the thumb up briefly so the bar can catch up before it disappears.
+    hideTimer = setTimeout(() => el.classList.remove("dragging"), THUMB_LINGER_MS);
   };
   el.addEventListener("pointerdown", (e) => {
-    if (!document.body.classList.contains("writable")) return;
+    if (!writable()) return;
+    if (e.pointerType === "touch") {
+      tap = { x: e.clientX, y: e.clientY, t: performance.now() };
+      return;  // not selected: let the page scroll; selected: a drag starts once it moves
+    }
     e.preventDefault();
     el.setPointerCapture(e.pointerId);  // keep the drag when the pointer leaves the thin bar
-    dragging = true;
-    move(e);
+    begin(e);
   });
-  el.addEventListener("pointermove", (e) => { if (dragging) move(e); });
+  el.addEventListener("pointermove", (e) => {
+    if (dragging) return move(e);
+    if (tap && armedFader === el && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > TAP_SLOP_PX) {
+      tap = null;
+      el.setPointerCapture(e.pointerId);
+      begin(e);
+    }
+  });
+  el.addEventListener("pointerup", (e) => {
+    if (dragging) return end();
+    if (tap && e.pointerType === "touch" && performance.now() - tap.t < TAP_MAX_MS
+        && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) <= TAP_SLOP_PX) {
+      setArmed(el, armedFader !== el);
+    }
+    tap = null;
+  });
+  el.addEventListener("pointercancel", () => { tap = null; end(); });
   // touch-action alone didn't stop iOS Safari from scrolling the page under the finger, so the
-  // touch events are cancelled too (non-passive, or preventDefault is ignored).
+  // touch events are cancelled too (non-passive, or preventDefault is ignored) -- but only on the
+  // selected fader, so every other bar still scrolls.
   ["touchstart", "touchmove"].forEach(t => el.addEventListener(t, (e) => {
-    if (document.body.classList.contains("writable")) e.preventDefault();
+    if (writable() && armedFader === el) e.preventDefault();
   }, { passive: false }));
-  ["pointerup", "pointercancel"].forEach(t => el.addEventListener(t, end));
 }
 document.querySelectorAll("[data-fader]").forEach((el) => {
-  makeDraggableFader(el, el.dataset.fader);  // "1".."24", "master" or "bumps"
+  makeDraggableFader(el, el.dataset.fader);  // "1".."24", "master", "bumps", "live", "next"
 });
+document.addEventListener("visibilitychange", () => { if (document.hidden && armedFader) setArmed(armedFader, false); });
 
 // MEMS page select (SmartSoft's PAGE dropdown), shown only in MEMS mode (see style.css); without
 // --allow-write the read-only badge shows the page instead. The console confirms with its own
@@ -724,7 +816,7 @@ modeSelect.add(unknownOption);
 Object.keys(MODE_BUTTONS).forEach(mode => modeSelect.add(new Option(mode, mode)));
 modeSelect.addEventListener("change", () => {
   if (!document.body.classList.contains("writable")) return;
-  fetch(`/api/button/${MODE_BUTTONS[modeSelect.value]}`, { method: "POST" }).catch(() => {});
+  writePost(`/api/button/${MODE_BUTTONS[modeSelect.value]}`).catch(() => {});
   modeSelect.blur();
   setTimeout(() => { if (lastState) render(lastState); }, 1000);
 });
@@ -733,7 +825,15 @@ const pageSelect = document.getElementById("mems-page");
 for (let p = 1; p <= 12; p++) pageSelect.add(new Option(String(p), String(p)));
 pageSelect.addEventListener("change", () => {
   if (!document.body.classList.contains("writable")) return;
-  fetch(`/api/mems_page/${pageSelect.value}`, { method: "POST" }).catch(() => {});
+  writePost(`/api/mems_page/${pageSelect.value}`).catch(() => {});
+});
+
+const passwordInput = document.getElementById("control-password");
+passwordInput.value = controlPassword;
+passwordInput.addEventListener("change", () => {
+  controlPassword = passwordInput.value;
+  try { localStorage.setItem(PASSWORD_KEY, controlPassword); } catch (e) { /* not persisted */ }
+  checkPassword();
 });
 
 connect();

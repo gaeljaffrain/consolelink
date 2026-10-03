@@ -52,12 +52,14 @@ type=0x0e and the stored type=0x0f bank): a fader at full with Live and Master a
 """
 import argparse
 import json
+import hmac
 import queue
 import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
+from urllib.parse import parse_qs, urlsplit
 
 import usb.core
 import usb.util
@@ -140,13 +142,15 @@ BUTTONS = {"blackout": sfl.BUTTON_BLACKOUT, "solo": sfl.BUTTON_SOLO,
            "mode-int-dev": sfl.BUTTON_MODE_INT_DEV, "mode-param-1": sfl.BUTTON_MODE_PARAM_1,
            "mode-param-2": sfl.BUTTON_MODE_PARAM_2, "mode-mems": sfl.BUTTON_MODE_MEMS}
 # Set from --allow-write in main(). Off by default: writing is refused (403) and the page's
-# buttons stay inert, since the server has no authentication and listens on every interface.
+# buttons stay inert, since the server listens on every interface.
 write_enabled = False
+# The password the page must send (?pw=...) with every write; set with --allow-write.
+write_password = ""
 # Events for the poll thread: ("tap", code), ("press", code), ("keepalive", code), ("release", code),
 # ("page", n).
 button_queue = queue.Queue()
-# Fader moves requested over HTTP (POST /api/fader/<1-24|master|bumps>/<0-255>): only the latest
-# value per fader matters, so a fast drag overwrites instead of queueing, like SmartSoft's own
+# Fader moves requested over HTTP (POST /api/fader/<1-24|master|bumps|live|next>/<0-255>): only
+# the latest value per fader matters, so a fast drag overwrites instead of queueing, like SmartSoft's own
 # send queue.
 fader_writes = {}
 fader_writes_lock = threading.Lock()
@@ -656,15 +660,27 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         """POST /api/button/<name> (tap), /api/bump/<1-24>/press|keepalive|release (hold),
-        /api/fader/<1-24|master|bumps>/<0-255> and /api/mems_page/<1-12>. All need
-        --allow-write and a connected console."""
-        event = self._parse_write_request()
+        /api/fader/<1-24|master|bumps|live|next>/<0-255>, /api/mems_page/<1-12> and
+        /api/auth (password check only). All need --allow-write and ?pw=<password>; all but
+        /api/auth also need a connected console."""
+        url = urlsplit(self.path)
+        event = ("auth",) if url.path == "/api/auth" else self._parse_write_request(url.path)
         if event is None:
             self.send_response(404)
             self.end_headers()
             return
         if not write_enabled:
             self.send_response(403)
+            self.end_headers()
+            return
+        given = parse_qs(url.query).get("pw", [""])[0]
+        if not hmac.compare_digest(given.encode(), write_password.encode()):
+            time.sleep(0.5)  # slows down password guessing
+            self.send_response(401)
+            self.end_headers()
+            return
+        if event[0] == "auth":
+            self.send_response(204)
             self.end_headers()
             return
         with state_lock:
@@ -681,9 +697,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(204)
         self.end_headers()
 
-    def _parse_write_request(self):
-        """The queue event for self.path, or None if it isn't a valid write request."""
-        parts = self.path.strip("/").split("/")
+    def _parse_write_request(self, path):
+        """The queue event for `path` (no query), or None if it isn't a valid write request."""
+        parts = path.strip("/").split("/")
         if len(parts) == 3 and parts[:2] == ["api", "button"] and parts[2] in BUTTONS:
             return ("tap", BUTTONS[parts[2]])
         if (len(parts) == 4 and parts[:2] == ["api", "bump"]
@@ -692,7 +708,8 @@ class Handler(BaseHTTPRequestHandler):
             if fader is not None:
                 return (parts[3], sfl.bump_code(fader))
         if len(parts) == 4 and parts[:2] == ["api", "fader"]:
-            fader = {"master": sfl.FADER_MASTER, "bumps": sfl.FADER_BUMPS}.get(
+            fader = {"master": sfl.FADER_MASTER, "bumps": sfl.FADER_BUMPS,
+                     "live": sfl.FADER_LIVE, "next": sfl.FADER_NEXT}.get(
                 parts[2], _int_in_range(parts[2], 1, sfl.FADER_COUNT))
             value = _int_in_range(parts[3], 0, 255)
             if fader is not None and value is not None:
@@ -731,6 +748,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.send_response(200)
         self.send_header("Content-Type", content_type)
+        # Without this, iOS Safari can keep serving a stale index.html/app.js after an upgrade.
+        self.send_header("Cache-Control", "no-cache")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -750,7 +769,7 @@ class QuietThreadingHTTPServer(ThreadingHTTPServer):
 
 
 def main():
-    global debug, capture_path, artnet_sender, write_enabled
+    global debug, capture_path, artnet_sender, write_enabled, write_password
     parser = argparse.ArgumentParser(
         description="Local web app showing live console state (physical faders + per-mode intensities).")
     parser.add_argument("--debug", action="store_true",
@@ -764,20 +783,24 @@ def main():
     parser.add_argument("--no-web", action="store_true",
                          help="Don't start the web server; just poll the console (use with "
                               "--debug, --capture and/or --artnet).")
-    parser.add_argument("--allow-write", action="store_true",
+    parser.add_argument("--allow-write", metavar="PASSWORD", default=None,
                          help="Let the web page press console buttons (BlackOut, Solo, Ind 1/2, "
-                              "the fader-mode buttons, the Bump buttons) and pick the MEMS page. "
-                              "Off by default: the server has no authentication, so anyone who "
-                              "can reach its port could use it.")
+                              "the Bump buttons), pick the MEMS page and move the faders. Every "
+                              "write must carry PASSWORD (the page asks for it in its settings). "
+                              "Off by default. It travels in the URL over plain HTTP, so it keeps "
+                              "casual users out, nothing more: use it on a network you trust.")
     artnet.add_arguments(parser)
     args = parser.parse_args()
     if args.no_web and not (args.debug or args.capture or args.artnet is not None):
         parser.error("--no-web needs at least one of --debug, --capture, --artnet "
                      "(otherwise there is nothing to do)")
-    if args.allow_write and args.no_web:
+    if args.allow_write is not None and args.no_web:
         parser.error("--allow-write needs the web page (drop --no-web)")
+    if args.allow_write == "":
+        parser.error("--allow-write needs a non-empty PASSWORD")
     debug = args.debug
-    write_enabled = args.allow_write
+    write_enabled = args.allow_write is not None
+    write_password = args.allow_write or ""
     update_state(write_enabled=write_enabled)
     capture_path = args.capture
     artnet_sender = artnet.sender_from_args(args, parser)

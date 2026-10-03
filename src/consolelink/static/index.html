@@ -94,14 +94,14 @@
       </div>
       <div class="meter special-meter" id="xfade-live">
         <div class="meter-label">LIVE</div>
-        <div class="value-row">
+        <div class="value-row" data-fader="live">
           <div class="track"><div class="fill" style="height:0%"></div></div>
           <div class="val">0</div>
         </div>
       </div>
       <div class="meter special-meter" id="xfade-next">
         <div class="meter-label">NEXT</div>
-        <div class="value-row">
+        <div class="value-row" data-fader="next">
           <div class="track"><div class="fill" style="height:0%"></div></div>
           <div class="val">0</div>
         </div>
@@ -171,6 +171,11 @@
           <span>Native</span></span>
       </label>
       <label class="setting int-ab-control"><input type="checkbox" id="show-int-ab"> Show INT A/B</label>
+      <label class="setting pw-control" id="pw-setting" hidden>Control password
+        <input type="password" id="control-password" autocomplete="off" autocapitalize="off"
+               spellcheck="false">
+        <span class="pw-status" id="pw-status" role="status"></span>
+      </label>
       <div class="settings-foot">ConsoleLink <span id="version"></span></div>
     </div>
   </div>
