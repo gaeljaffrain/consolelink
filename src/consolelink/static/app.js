@@ -446,23 +446,17 @@ function applyPalette() {
     document.documentElement.style.setProperty(token, softenColor(paletteBase[token])));
 }
 
-// A Bump LED with nothing to show reads 00 in the INT modes but 0a in PARAM 1/2 and MEMS (a faint
-// glow, the console's idle level): both are "off", so the buttons look alike in every mode. A MEMS
-// slot with a recorded memory is 46, well above this.
-const LED_IDLE_MAX = 0x0a;
-
 // light is null until the fader's first type=0x16 update, then either
 // {blinking:true, color_a, color_b} (flashing toward its stored value) or {blinking:false, color}
 // -- [r, g, b] straight from the console (green, or red in MEMS), through softenColor().
-function setPhysicalFader(i, value, light, mode, labels, memsPage) {
+// ledState is the server's read of it: "on", "off" or "blinking" (null until the first update).
+function setPhysicalFader(i, value, light, ledState, mode, labels, memsPage) {
   const meterEl = document.getElementById("physfader-" + i);
   setBar(meterEl, value, true);
   setName(meterEl, physicalFaderLabelLines(mode, i, labels, memsPage));
-  const dark = light && Math.max(...(light.blinking ? [...light.color_a, ...light.color_b] : light.color)) <= LED_IDLE_MAX;
-  setIndicator(document.getElementById("physfader-" + i + "-light"),
-    !light ? null : dark ? "off" : light.blinking ? "blinking" : "on", light, true);
+  setIndicator(document.getElementById("physfader-" + i + "-light"), ledState ?? null, light, true);
   document.getElementById("physfader-" + i + "-light").style
-    .setProperty("--on-text", dark ? "" : onLightText(light));
+    .setProperty("--on-text", ledState === "off" ? "" : onLightText(light));
   meterEl.style.setProperty("--bar-color", barColor(light));
 }
 
@@ -562,7 +556,7 @@ function render(state) {
   }
   for (let i = 1; i <= 24; i++) {
     setPhysicalFader(i, state.physical_faders?.[i - 1] ?? 0, state.physical_fader_lights?.[i - 1],
-      state.fader_mode, state.labels, state.mems_page);
+      state.physical_fader_states?.[i - 1], state.fader_mode, state.labels, state.mems_page);
   }
   // Only PARAM 1/2 have groupable labels; recomputed on mode change only, since PARAM_GROUPS is
   // static and shared with paramFaderLabel() -- the bar and per-fader labels can't disagree.

@@ -92,10 +92,10 @@ IO_TIMEOUT_MS = 200
 # 0x16: ~637-642 byte full-table dump, correlated with wheel moves and occasional full
 #       refreshes; likely a live RGB-ish color-preview value, mostly not decoded -- type=0x15
 #       already gives an exact, plain-text readout of whatever a wheel is adjusting.
-#       EXCEPTIONS: bytes 517-528 are decoded (decode_0x16_indicators) -- two adjacent 6-byte
-#       Solo/BlackOut indicator blocks (Solo also has a confirmed distinct "blinking" pattern,
-#       not yet wired into decode_0x16_indicators). Each fader's 6-byte Bump-LED block (two RGB
-#       triples, decode_0x16_bump_catch) lives at `1+6*(N-1)`.
+#       EXCEPTIONS: the console's LEDs are 6-byte blocks (two RGB triples, the LED's two blink
+#       phases): the Solo/BlackOut/Int Only/Go Mode blocks (decode_0x16_indicator_lights) and each
+#       fader's Bump LED (decode_0x16_bump_catch) at `1+6*(N-1)`; light_state() turns any of them
+#       into on/off/blinking.
 KNOWN_UNDECODED_TYPES = {0x00, 0x10}
 
 
@@ -498,48 +498,12 @@ def decode_0x0c(data):
     return result
 
 
-def decode_0x16_indicators(data):
-    """type=0x16 (637 bytes, still mostly undecoded): two adjacent 6-byte indicator blocks:
-      - offset 517-522: Solo.     `ff ff ff` / `ff ff ff` (RGB white, both halves equal) = on.
-      - offset 523-528: BlackOut. `00 00 ff` / `00 00 ff` (RGB blue,  both halves equal) = on.
-    Each block is two consecutive 3-byte RGB colors -- the button's own LED is driven by this
-    pair, alternating between them at a fixed local rate. A steady (non-blinking) LED is the
-    degenerate case where both halves are the same color (`0a 0a 0a` / `0a 0a 0a`, a dim gray,
-    is the observed resting/idle color for both indicators).
-
-    "Blinking" is decoded generically as "the two halves of this button's block don't match",
-    not from a hardcoded blink-specific byte pattern -- this correctly flags BlackOut blinking
-    too (e.g. the console's own "Master pulled down while BlackOut is off" warning) even though
-    BlackOut's own blink colors have never been directly observed on the wire; only Solo's has.
-    The MEMS-only INT ONLY (373) and GO MODE (361) LEDs use the same block shape (blue = on).
-    Returns {"solo": "on"|"off"|"blinking"|None, "blackout": ..., "go_mode": ..., "int_only": ...}
-    -- None only if data is too short to contain these offsets at all.
-    """
-    def read(lo, hi, on_color):
-        chunk = data[lo:hi]
-        if len(chunk) < hi - lo:
-            return None
-        mid = lo + (hi - lo) // 2
-        half1, half2 = data[lo:mid], data[mid:hi]
-        if half1 != half2:
-            return "blinking"
-        return "on" if half1 == on_color else "off"
-
-    blue = bytes.fromhex("0000ff")
-    return {
-        "solo": read(517, 523, b"\xff\xff\xff"),
-        "blackout": read(523, 529, blue),
-        "go_mode": read(361, 367, blue),
-        "int_only": read(373, 379, blue),
-    }
-
-
 def decode_0x16_bump_catch(data, fader):
     """type=0x16, per-fader Bump LED. `fader` is 1-indexed (1-24, same convention as
     decode_0x0e's `Fader{N}`).
 
     Each fader has a 6-byte block at `1+6*(N-1)`: two RGB triples, the LED's two blink
-    phases -- the same shape as Solo/BlackOut's blocks (decode_0x16_indicators). The color
+    phases -- the same shape as Solo/BlackOut's blocks (decode_0x16_indicator_lights). The color
     comes from the console itself: green `(0, v, 0)` in INT A/B/DEV and PARAM 1/2, red
     `(v, 0, 0)` in MEMS.
 
@@ -559,10 +523,11 @@ def decode_0x16_bump_catch(data, fader):
 
 
 def decode_0x16_indicator_lights(data):
-    """type=0x16: Solo/BlackOut's LED colors, the same 6-byte two-RGB-triple blocks that
-    decode_0x16_indicators reads as on/off/blinking (offsets 517 / 523). Solo on is white
-    `ff ff ff`, BlackOut on is blue `00 00 ff`, BlackOut's blink is `37 37 ff` / `0a 0a 0a`,
-    idle is `0a 0a 0a` for both.
+    """type=0x16: the LED colors of Solo (offset 517), BlackOut (523) and the MEMS-only GO MODE
+    (361) and INT ONLY (373): 6-byte blocks of two RGB triples, the LED's two blink phases. Solo
+    on is white `ff ff ff`, BlackOut/Int Only/Go Mode on is blue `00 00 ff`, BlackOut's blink is
+    `37 37 ff` / `0a 0a 0a`, idle is `0a 0a 0a` for all. light_state() reads on/off/blinking
+    from the colors, so no "on" color is hard-coded.
 
     Returns {"solo", "blackout", "go_mode", "int_only"}, each in decode_0x16_bump_catch's shape
     (None if data is too short).
@@ -582,6 +547,25 @@ def _rgb_pair(data, off):
     if a != b:
         return {"blinking": True, "color_a": a, "color_b": b}
     return {"blinking": False, "color": a}
+
+
+# The console's idle LED level: a Bump LED with nothing to show reads 00 in the INT modes but 0a in
+# PARAM 1/2 and MEMS (a faint glow); Solo, BlackOut, Int Only and Go Mode idle at 0a. A MEMS slot
+# with a recorded memory is 46, well above it.
+LED_IDLE_MAX = 0x0A
+
+
+def light_state(light):
+    """"on", "off" or "blinking" for a light in _rgb_pair's shape (None -> None, no data yet),
+    from its real colors, whatever they are: a LED whose brightest channel is at or below
+    LED_IDLE_MAX is off (also when both blink phases are that dark); otherwise it is blinking if
+    its two phases differ, else on."""
+    if light is None:
+        return None
+    colors = [light["color_a"], light["color_b"]] if light["blinking"] else [light["color"]]
+    if max(max(c) for c in colors) <= LED_IDLE_MAX:
+        return "off"
+    return "blinking" if light["blinking"] else "on"
 
 
 class ConsoleLink:

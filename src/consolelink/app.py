@@ -96,6 +96,7 @@ state = {
     # fader; then {"blinking": True, "color_a": [r, g, b], "color_b": [r, g, b]} or
     # {"blinking": False, "color": [r, g, b]} -- the console's own LED color, see
     # decode_0x16_bump_catch in protocol.py
+    "physical_fader_states": [None] * 24,  # each Bump LED as "on"/"off"/"blinking" (light_state)
     "bumps": 0,
     "master": 0,
     "crossfader_live": 0,  # Crossfader Live/Next scene levels, raw 0-255 (type=0x11)
@@ -315,21 +316,19 @@ def handle_payload(obj_type, data):
                     state["independent_labels"].update(update["independent_labels"])
                     state["last_update"] = time.time()
                     state_condition.notify_all()
-    # Solo/Blackout indicators and LED colors, plus the 24 per-fader Bump-LED blocks in the same payload
+    # Solo/BlackOut/Int Only/Go Mode and the 24 per-fader Bump-LED blocks, all in this payload: the
+    # LED colors as the console sent them, and each LED's on/off/blinking read from them.
     elif obj_type == 0x16:
-        flags = sfl.decode_0x16_indicators(data)
-        update = {k: v for k, v in flags.items() if v is not None}
-        if debug and update:
-            print(f"[solo/blackout] t={time.time() - _t_start:7.3f}  {update}", file=sys.stderr)
-        if update:
-            update_state(**update)
-        # Own state_condition block, not folded into `update` above -- that dict is only
-        # applied when solo/blackout actually changed, and coupling the fader-lights list to
-        # that truthiness would be incidental, not a designed guarantee.
         lights = [sfl.decode_0x16_bump_catch(data, n) for n in range(1, 25)]
         indicator_lights = sfl.decode_0x16_indicator_lights(data)
+        indicator_states = {k: sfl.light_state(v) for k, v in indicator_lights.items()}
+        update = {k: v for k, v in indicator_states.items() if v is not None}
+        if debug and update:
+            print(f"[indicators] t={time.time() - _t_start:7.3f}  {update}", file=sys.stderr)
         with state_condition:
+            state.update(update)
             state["physical_fader_lights"] = lights
+            state["physical_fader_states"] = [sfl.light_state(light) for light in lights]
             state["indicator_lights"] = indicator_lights
             state["last_update"] = time.time()
             state_condition.notify_all()
