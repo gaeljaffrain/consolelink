@@ -1,15 +1,28 @@
 # ConsoleLink
 
-Talk to an ETC SmartFade ML lighting console over USB and see its live state
-(faders, master, bumps, independents, solo/blackout, both LCDs) without SmartSoft.
+ConsoleLink is an original software tool designed to communicate with existing lighting desks
+and add new features:
 
-Built from a reverse-engineered wire protocol; see [`protocol.py`](src/consolelink/protocol.py)'s
-module docstring for the details.
+- Web interface that mirrors and controls the console from any browser
+- Art-Net output
 
-The protocol was reverse-engineered by running the original SmartSoft software
-under Windows 10 against a SmartFade ML console, while capturing the USB
-traffic with Wireshark. Each capture isolated a single step (initial
-connection, moving one fader, pressing one button, etc.) so the resulting
+It keeps these consoles usable when the manufacturer's software is not updated or supported on current operating systems.
+
+ConsoleLink was tested with SmartFade ML, by Electronic Theatre Controls, Inc. (ETC).
+Support for more lighting desks may be added in later releases.
+
+**Disclaimer**: ConsoleLink is an independent project and is not affiliated with, endorsed by, or sponsored by ETC.
+SmartFade and SmartSoft are trademarks of ETC and are used here only to identify compatible products.
+Use at your own risk; no warranty is provided.
+
+## Protocol Study Process
+
+The general process to establish the protocol details was to capture USB traces using the original software and consoles,
+and study the traces to understand the wire protocol.
+
+For the SmartFade ML case in particular, the traces were obtained running the original SmartSoft software
+under Windows 10 against an actual SmartFade ML console. USB traffic was captured with Wireshark.
+Each capture isolated a single step (initial connection, moving one fader, pressing one button, etc.) so the resulting
 traces could be matched to a specific action.
 
 ## Screenshots
