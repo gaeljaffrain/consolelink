@@ -3,11 +3,20 @@ Minimal local web app showing live console state: the 24 physical faders'
 current output, plus the console's per-mode intensity memory.
 
 Run:
-    consolelink [--debug] [--capture PATH] [--no-web] [--artnet [DEST]]
+    consolelink [--debug] [--capture PATH] [--no-web] [--artnet [DEST]] [--allow-write PASSWORD]
 (or `python -m consolelink ...`; `pip install -e .` from the repo creates the command).
 Then open http://localhost:8765 in a browser, or http://<this Mac's LAN IP>:8765 from
 another device on the same network (e.g. `ipconfig getifaddr en0` for the IP; macOS will
 prompt to allow incoming connections for python3 the first time a LAN client connects).
+
+--allow-write PASSWORD (off by default) lets the page control the console: press its buttons
+(BlackOut, Solo, Ind 1/2, the fader-mode buttons, the MEMS-only Int Only / Go Mode), hold a Bump
+button, drag the 24 faders, MASTER, BUMPS, LIVE and NEXT, and pick the MEMS page. The page sends
+POST /api/button|bump|fader|mems_page/... (see Handler.do_POST); each request must carry
+?pw=PASSWORD (the page asks for it in its settings; POST /api/auth only checks it). The password
+travels in the URL over plain HTTP, so it keeps casual users out and nothing more. Writes go to the
+USB thread, the only one that touches the device, through a queue -- or, for faders, a dict that
+keeps only the latest value per fader.
 
 Terminal only, no web server: add --no-web (with --debug, --capture and/or --artnet -- there is
 nothing else for it to do). --debug prints every control change to stderr, plus a line for any
@@ -42,7 +51,9 @@ faders) -- shown as lights, decoded from type=0x0c. Also a dedicated
 Physical Faders row: 24 bar+light indicators, one per physical fader,
 mode-agnostic (type=0x0e for the live value, type=0x16 for the Bump LED --
 solid/color-proportional once caught, blinking while the physical fader
-hasn't yet caught its stored logical value after a mode switch). And the console's two
+hasn't yet caught its stored logical value after a mode switch). type=0x16 also carries the Solo,
+BlackOut and MEMS-only Int Only / Go Mode LEDs; every LED's on/off/blinking is read from its real
+colors (protocol.light_state) and sent to the page. And the console's two
 LCDs, mirrored as text (type=0x15), and the Crossfader Live/Next levels (type=0x11). And the
 console's DMX output, both universes (type=0x0d), for the "DMX Outputs" tab.
 
@@ -51,6 +62,7 @@ type=0x0e and the stored type=0x0f bank): a fader at full with Live and Master a
 36%, not 100%.
 """
 import argparse
+import hmac
 import json
 import queue
 import sys
@@ -58,6 +70,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
+from urllib.parse import parse_qs, urlsplit
 
 import usb.core
 import usb.util
@@ -94,6 +107,7 @@ state = {
     # fader; then {"blinking": True, "color_a": [r, g, b], "color_b": [r, g, b]} or
     # {"blinking": False, "color": [r, g, b]} -- the console's own LED color, see
     # decode_0x16_bump_catch in protocol.py
+    "physical_fader_states": [None] * 24,  # each Bump LED as "on"/"off"/"blinking" (light_state)
     "bumps": 0,
     "master": 0,
     "crossfader_live": 0,  # Crossfader Live/Next scene levels, raw 0-255 (type=0x11)
@@ -104,7 +118,9 @@ state = {
     "independent2_clicked": None,  # separate bit from the value above
     "solo": None,  # None until the first type=0x16 message; then "on"/"off"/"blinking"
     "blackout": None,
-    "indicator_lights": {"solo": None, "blackout": None},  # the console's own Solo/BlackOut
+    "go_mode": None,   # the MEMS-only GO MODE / INT ONLY LEDs, same states (off outside MEMS)
+    "int_only": None,
+    "indicator_lights": {"solo": None, "blackout": None, "go_mode": None, "int_only": None},  # the console's own Solo/BlackOut
     # LED colors, same shape as physical_fader_lights -- see decode_0x16_indicator_lights
     "lcd": None,  # None until the first type=0x15; then the console's 4 LCD lines,
     # [LCD 1 line 1, LCD 1 line 2, LCD 2 line 1, LCD 2 line 2] -- see decode_0x15
@@ -138,13 +154,21 @@ BUTTONS = {"blackout": sfl.BUTTON_BLACKOUT, "solo": sfl.BUTTON_SOLO,
            "ind1": sfl.BUTTON_IND1, "ind2": sfl.BUTTON_IND2,
            "mode-int-a": sfl.BUTTON_MODE_INT_A, "mode-int-b": sfl.BUTTON_MODE_INT_B,
            "mode-int-dev": sfl.BUTTON_MODE_INT_DEV, "mode-param-1": sfl.BUTTON_MODE_PARAM_1,
-           "mode-param-2": sfl.BUTTON_MODE_PARAM_2, "mode-mems": sfl.BUTTON_MODE_MEMS}
+           "mode-param-2": sfl.BUTTON_MODE_PARAM_2, "mode-mems": sfl.BUTTON_MODE_MEMS,
+           "int-only": sfl.BUTTON_INT_ONLY, "go-mode": sfl.BUTTON_GO_MODE}
 # Set from --allow-write in main(). Off by default: writing is refused (403) and the page's
-# buttons stay inert, since the server has no authentication and listens on every interface.
+# buttons stay inert, since the server listens on every interface.
 write_enabled = False
+# The password the page must send (?pw=...) with every write; set with --allow-write.
+write_password = ""
 # Events for the poll thread: ("tap", code), ("press", code), ("keepalive", code), ("release", code),
 # ("page", n).
 button_queue = queue.Queue()
+# Fader moves requested over HTTP (POST /api/fader/<1-24|master|bumps|live|next>/<0-255>): only
+# the latest value per fader matters, so a fast drag overwrites instead of queueing, like SmartSoft's own
+# send queue.
+fader_writes = {}
+fader_writes_lock = threading.Lock()
 
 # A Bump button is held, not tapped (INT modes: the channel stays bumped for as long as the
 # button is down), so the page sends press and release separately -- and sends a keepalive
@@ -303,22 +327,19 @@ def handle_payload(obj_type, data):
                     state["independent_labels"].update(update["independent_labels"])
                     state["last_update"] = time.time()
                     state_condition.notify_all()
-    # Solo/Blackout indicators and LED colors, plus the 24 per-fader Bump-LED blocks in the same payload
+    # Solo/BlackOut/Int Only/Go Mode and the 24 per-fader Bump-LED blocks, all in this payload: the
+    # LED colors as the console sent them, and each LED's on/off/blinking read from them.
     elif obj_type == 0x16:
-        flags = sfl.decode_0x16_indicators(data)
-        update = {k: v for k, v in (("solo", flags["solo"]), ("blackout", flags["blackout"]))
-                  if v is not None}
-        if debug and update:
-            print(f"[solo/blackout] t={time.time() - _t_start:7.3f}  {update}", file=sys.stderr)
-        if update:
-            update_state(**update)
-        # Own state_condition block, not folded into `update` above -- that dict is only
-        # applied when solo/blackout actually changed, and coupling the fader-lights list to
-        # that truthiness would be incidental, not a designed guarantee.
         lights = [sfl.decode_0x16_bump_catch(data, n) for n in range(1, 25)]
         indicator_lights = sfl.decode_0x16_indicator_lights(data)
+        indicator_states = {k: sfl.light_state(v) for k, v in indicator_lights.items()}
+        update = {k: v for k, v in indicator_states.items() if v is not None}
+        if debug and update:
+            print(f"[indicators] t={time.time() - _t_start:7.3f}  {update}", file=sys.stderr)
         with state_condition:
+            state.update(update)
             state["physical_fader_lights"] = lights
+            state["physical_fader_states"] = [sfl.light_state(light) for light in lights]
             state["indicator_lights"] = indicator_lights
             state["last_update"] = time.time()
             state_condition.notify_all()
@@ -509,6 +530,11 @@ def poll_forever(stop_event):
                     held.release(arg)
                 elif kind == "page":
                     link.send_mems_page(arg)
+            with fader_writes_lock:
+                pending_faders = list(fader_writes.items())
+                fader_writes.clear()
+            for fader, value in pending_faders:
+                link.send_fader(fader, value)
             held.service()
 
             if not link.write_header(0, 0, (0, 0, 0, 0)):
@@ -645,9 +671,12 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
-        """POST /api/button/<name> (tap), /api/bump/<1-24>/press|keepalive|release (hold) and
-        /api/mems_page/<1-12>. All need --allow-write and a connected console."""
-        event = self._parse_write_request()
+        """POST /api/button/<name> (tap), /api/bump/<1-24>/press|keepalive|release (hold),
+        /api/fader/<1-24|master|bumps|live|next>/<0-255>, /api/mems_page/<1-12> and
+        /api/auth (password check only). All need --allow-write and ?pw=<password>; all but
+        /api/auth also need a connected console."""
+        url = urlsplit(self.path)
+        event = ("auth",) if url.path == "/api/auth" else self._parse_write_request(url.path)
         if event is None:
             self.send_response(404)
             self.end_headers()
@@ -656,19 +685,33 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(403)
             self.end_headers()
             return
+        given = parse_qs(url.query).get("pw", [""])[0]
+        if not hmac.compare_digest(given.encode(), write_password.encode()):
+            time.sleep(0.5)  # slows down password guessing
+            self.send_response(401)
+            self.end_headers()
+            return
+        if event[0] == "auth":
+            self.send_response(204)
+            self.end_headers()
+            return
         with state_lock:
             connected = state["connected"]
         if not connected:
             self.send_response(503)
             self.end_headers()
             return
-        button_queue.put(event)
+        if event[0] == "fader":
+            with fader_writes_lock:
+                fader_writes[event[1]] = event[2]
+        else:
+            button_queue.put(event)
         self.send_response(204)
         self.end_headers()
 
-    def _parse_write_request(self):
-        """The queue event for self.path, or None if it isn't a valid write request."""
-        parts = self.path.strip("/").split("/")
+    def _parse_write_request(self, path):
+        """The queue event for `path` (no query), or None if it isn't a valid write request."""
+        parts = path.strip("/").split("/")
         if len(parts) == 3 and parts[:2] == ["api", "button"] and parts[2] in BUTTONS:
             return ("tap", BUTTONS[parts[2]])
         if (len(parts) == 4 and parts[:2] == ["api", "bump"]
@@ -676,6 +719,13 @@ class Handler(BaseHTTPRequestHandler):
             fader = _int_in_range(parts[2], 1, sfl.BUMP_COUNT)
             if fader is not None:
                 return (parts[3], sfl.bump_code(fader))
+        if len(parts) == 4 and parts[:2] == ["api", "fader"]:
+            fader = {"master": sfl.FADER_MASTER, "bumps": sfl.FADER_BUMPS,
+                     "live": sfl.FADER_LIVE, "next": sfl.FADER_NEXT}.get(
+                parts[2], _int_in_range(parts[2], 1, sfl.FADER_COUNT))
+            value = _int_in_range(parts[3], 0, 255)
+            if fader is not None and value is not None:
+                return ("fader", fader, value)
         if len(parts) == 3 and parts[:2] == ["api", "mems_page"]:
             page = _int_in_range(parts[2], 1, sfl.MEMS_PAGE_COUNT)
             if page is not None:
@@ -710,6 +760,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.send_response(200)
         self.send_header("Content-Type", content_type)
+        # Without this, iOS Safari can keep serving a stale index.html/app.js after an upgrade.
+        self.send_header("Cache-Control", "no-cache")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -729,7 +781,7 @@ class QuietThreadingHTTPServer(ThreadingHTTPServer):
 
 
 def main():
-    global debug, capture_path, artnet_sender, write_enabled
+    global debug, capture_path, artnet_sender, write_enabled, write_password
     parser = argparse.ArgumentParser(
         description="Local web app showing live console state (physical faders + per-mode intensities).")
     parser.add_argument("--debug", action="store_true",
@@ -743,20 +795,24 @@ def main():
     parser.add_argument("--no-web", action="store_true",
                          help="Don't start the web server; just poll the console (use with "
                               "--debug, --capture and/or --artnet).")
-    parser.add_argument("--allow-write", action="store_true",
+    parser.add_argument("--allow-write", metavar="PASSWORD", default=None,
                          help="Let the web page press console buttons (BlackOut, Solo, Ind 1/2, "
-                              "the fader-mode buttons, the Bump buttons) and pick the MEMS page. "
-                              "Off by default: the server has no authentication, so anyone who "
-                              "can reach its port could use it.")
+                              "the Bump buttons), pick the MEMS page and move the faders. Every "
+                              "write must carry PASSWORD (the page asks for it in its settings). "
+                              "Off by default. It travels in the URL over plain HTTP, so it keeps "
+                              "casual users out, nothing more: use it on a network you trust.")
     artnet.add_arguments(parser)
     args = parser.parse_args()
     if args.no_web and not (args.debug or args.capture or args.artnet is not None):
         parser.error("--no-web needs at least one of --debug, --capture, --artnet "
                      "(otherwise there is nothing to do)")
-    if args.allow_write and args.no_web:
+    if args.allow_write is not None and args.no_web:
         parser.error("--allow-write needs the web page (drop --no-web)")
+    if args.allow_write == "":
+        parser.error("--allow-write needs a non-empty PASSWORD")
     debug = args.debug
-    write_enabled = args.allow_write
+    write_enabled = args.allow_write is not None
+    write_password = args.allow_write or ""
     update_state(write_enabled=write_enabled)
     capture_path = args.capture
     artnet_sender = artnet.sender_from_args(args, parser)

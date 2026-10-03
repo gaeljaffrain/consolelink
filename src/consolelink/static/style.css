@@ -58,11 +58,16 @@ body {
   margin-bottom: 12px;
 }
 h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-size: 18px;
   font-weight: 600;
   margin: 0;
   letter-spacing: 0.02em;
 }
+/* The app icon (same file as the tab's favicon), left of the title. */
+h1 .logo { width: 28px; height: 28px; flex: none; }
 .gear-btn {
   margin-left: auto;
   align-self: center;
@@ -114,6 +119,11 @@ h1 {
 }
 .close-btn:hover { color: var(--text); }
 .setting { padding: 8px 0; }
+.pw-control { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; }
+.pw-control input { width: 150px; }
+.pw-control[hidden] { display: none; }
+.pw-status { flex: 1 0 100%; font-size: 12px; color: var(--dim); }
+.pw-status.bad { color: var(--accent-red); }
 .settings-foot {
   margin-top: 10px;
   padding-top: 10px;
@@ -242,7 +252,7 @@ body.writable #mode-pill { display: none; }
    which the plain `hidden` attribute wouldn't beat. */
 .section.section-row.hidden-row { display: none; }
 .section.section-row .section-title {
-  flex: 0 0 46px;
+  flex: 0 0 66px;
   flex-direction: column;
   align-items: flex-start;
   gap: 3px;
@@ -310,6 +320,20 @@ body.writable #mode-pill { display: none; }
   overflow: hidden;
   position: relative;
 }
+/* The drag handle (added by makeDraggableFader in app.js): shown only while dragging, so the fill
+   underneath stays the console's reported level. */
+.meter .thumb {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--text);
+  box-shadow: 0 0 0 1px var(--bg);
+  display: none;
+  pointer-events: none;
+}
+.value-row.dragging .thumb { display: block; }
 .meter .fill {
   width: 100%;
   transition: height 80ms linear;
@@ -453,10 +477,20 @@ body.writable #mode-pill { display: none; }
 body.writable [data-button],
 body.writable [data-bump] { cursor: pointer; }
 body.writable [data-bump] { touch-action: none; }
+/* A fader bar scrolls the page like anything else until a finger selects it (tap; app.js), then it
+   takes the touches. */
+body.writable [data-fader] { touch-action: pan-y; cursor: ns-resize; }
+body.writable [data-fader].armed { touch-action: none; }
+/* Selected by touch: a bright outline round the whole meter, so it is obvious which one is live. */
+.meter.armed {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--text), 0 0 10px var(--text);
+}
 /* Long-pressing a button (e.g. Bump) on iOS would otherwise start a text selection / callout. */
 button,
 [data-button],
 [data-bump],
+[data-fader],
 .console-button {
   -webkit-user-select: none;
   user-select: none;
@@ -488,7 +522,7 @@ button,
   border: 1px solid var(--grid);
   color: var(--dim);
 }
-/* Each button names its on-state colors: --on-color is the background and glow, --on-text the
+/* Each button names its on-state colors: --on-color is the background, --on-text the
    text, picked for contrast (dark on SOLO's white and the Independents' green). */
 #btn-solo { --on-color: var(--bumps); --on-text: var(--darktext); }
 #btn-blackout { --on-color: var(--master); --on-text: var(--text); }
@@ -503,7 +537,6 @@ button,
   background: var(--color-a, var(--on-color));
   border-color: var(--color-a, var(--on-color));
   color: var(--on-text);
-  box-shadow: 0 0 10px var(--on-color);
   outline: 2px solid currentColor;
   outline-offset: -4px;
 }
@@ -511,8 +544,8 @@ button,
    flashing LED -- e.g. Solo while a Bump isolates a channel, BlackOut when Master is below full.
    steps(1) for a discrete flash. */
 @keyframes blink-button {
-  0%, 49%   { background: var(--color-a, var(--on-color)); border-color: var(--color-a, var(--on-color)); color: var(--on-text); box-shadow: 0 0 10px var(--on-color); }
-  50%, 100% { background: var(--color-b, var(--grid)); border-color: var(--color-b, var(--grid)); color: var(--dim); box-shadow: none; }
+  0%, 49%   { background: var(--color-a, var(--on-color)); border-color: var(--color-a, var(--on-color)); color: var(--on-text); }
+  50%, 100% { background: var(--color-b, var(--grid)); border-color: var(--color-b, var(--grid)); color: var(--dim); }
 }
 .console-button.blinking .light {
   animation: blink-button var(--blink-duration) steps(1) infinite;
@@ -544,6 +577,36 @@ button,
 body.writable .mems .page-control { display: block; }
 body:not(.writable) .mems .page-badge { display: block; }
 .page-control select { width: 100%; font-size: 11px; }
+/* INT ONLY / GO MODE: MEMS-only LED buttons (the console's own two), under the PAGE select. Read-only
+   LEDs without --allow-write, like the other console buttons. */
+.mems-modes { display: none; flex-direction: column; gap: 4px; margin-top: 4px; }
+.mems .mems-modes { display: flex; }
+/* In the left title column, the mode selector/pill, the PAGE select/badge and the two buttons all
+   take the column's full width, so they line up. */
+#section-physical .section-title > * { align-self: stretch; }
+.mems-modes .console-button { text-transform: none; letter-spacing: 0; }
+/* The four controls in the FADERS title (mode selector/pill, PAGE select/badge, INT ONLY, GO MODE)
+   share one height. */
+#section-physical .section-title {
+  --ctl-h: 24px;
+}
+#section-physical .section-title .mode-pill,
+#section-physical .section-title .page-badge,
+#section-physical .section-title .page-control select,
+#section-physical .mems-modes .console-button {
+  height: var(--ctl-h);
+  box-sizing: border-box;
+}
+#section-physical .section-title .mode-pill,
+#section-physical .section-title .page-badge {
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: var(--ctl-h);
+}
+/* Lit like BlackOut: white text on blue (the console's LED is blue), not the Bump buttons' dark text
+   and MEMS red. */
+#section-physical .mems-modes .console-button { --on-color: var(--master); --on-text: var(--text); }
+.mems-modes .console-button .light { font-size: 9px; font-weight: 700; white-space: nowrap; }
 
 
 /* 12 columns: the 6 meters and 6 LCD columns fill the row exactly, so the spacer track would
@@ -559,7 +622,8 @@ body:not(.writable) .mems .page-badge { display: block; }
 @media (max-width: 900px) {
   :root { --gap: 4px; }
   body { padding: 12px 8px 24px; }
-  h1 { font-size: 16px; }
+  h1 { font-size: 16px; gap: 8px; }
+  h1 .logo { width: 24px; height: 24px; }
   .title-row { margin-bottom: 12px; }
   .status-row { gap: 8px 14px; margin-bottom: 12px; }
   .section { padding: 6px 8px; }
@@ -596,6 +660,10 @@ body:not(.writable) .mems .page-badge { display: block; }
     align-items: center;
     gap: 8px;
   }
+  /* ...and its pieces sit in a row again, at their natural width, aligned on their middles. */
+  #section-physical .section-title > * { align-self: auto; margin-top: 0; }
+  .mems-modes { flex-direction: row; }
+  .mems-modes .console-button { flex: 0 0 64px; }
   /* flex: none, not 1 1 0: as column-direction flex items that basis would be a height, and these
        scroll containers (overflow-x: auto) would collapse. */
   .section.section-row .intensity-row,

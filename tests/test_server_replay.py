@@ -37,6 +37,8 @@ def test_led_colors_reach_state(server, capture):
 
     server.handle_payload(0x16, capture("bump_leds.log").tagged("mems_fader1_up").data)
     assert server.state["physical_fader_lights"][0] == {"blinking": False, "color": [255, 0, 0]}
+    assert server.state["physical_fader_states"][0] == "on"
+    assert server.state["physical_fader_states"][4] == "off"  # an empty MEMS slot, idle 0a
 
 
 def test_fader_mode_and_mems_page(server, capture):

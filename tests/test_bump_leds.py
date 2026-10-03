@@ -50,3 +50,23 @@ def test_fader_24_does_not_read_into_the_next_led_region(capture):
 
 def test_short_data_gives_none():
     assert sfl.decode_0x16_bump_catch(bytes(10), 24) is None
+
+
+def states(message):
+    return {n: sfl.light_state(light) for n, light in leds(message).items()}
+
+
+def test_bump_states_are_the_same_idea_in_every_mode(capture):
+    """Idle reads off in INT (00) and MEMS (0a) alike; a recorded MEMS memory, a lit fader and a
+    catch blink are not off."""
+    rest = states(capture("bump_leds.log").tagged("mems_rest"))
+    assert all(rest[n] == ("on" if n in MEMS_PAGE1_RECORDED else "off") for n in range(1, 25))
+    up = states(capture("bump_leds.log").tagged("mems_fader1_up"))
+    assert up[1] == "on" and up[5] == "off"
+    blink = states(capture("bump_leds.log").tagged("int_a_catch_blink"))
+    assert blink[1] == "blinking" and blink[2] == "on" and blink[3] == "off"
+    tracking = states(capture("bump_leds.log").tagged("int_a_tracking"))
+    assert tracking[1] == "on" and tracking[2] == "on"
+    assert all(tracking[n] == "off" for n in range(3, 25))
+    startup = states(capture("bump_leds.log").tagged("startup"))
+    assert startup[1] == "on" and startup[24] == "off"
