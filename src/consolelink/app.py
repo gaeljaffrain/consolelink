@@ -3,11 +3,20 @@ Minimal local web app showing live console state: the 24 physical faders'
 current output, plus the console's per-mode intensity memory.
 
 Run:
-    consolelink [--debug] [--capture PATH] [--no-web] [--artnet [DEST]]
+    consolelink [--debug] [--capture PATH] [--no-web] [--artnet [DEST]] [--allow-write PASSWORD]
 (or `python -m consolelink ...`; `pip install -e .` from the repo creates the command).
 Then open http://localhost:8765 in a browser, or http://<this Mac's LAN IP>:8765 from
 another device on the same network (e.g. `ipconfig getifaddr en0` for the IP; macOS will
 prompt to allow incoming connections for python3 the first time a LAN client connects).
+
+--allow-write PASSWORD (off by default) lets the page control the console: press its buttons
+(BlackOut, Solo, Ind 1/2, the fader-mode buttons, the MEMS-only Int Only / Go Mode), hold a Bump
+button, drag the 24 faders, MASTER, BUMPS, LIVE and NEXT, and pick the MEMS page. The page sends
+POST /api/button|bump|fader|mems_page/... (see Handler.do_POST); each request must carry
+?pw=PASSWORD (the page asks for it in its settings; POST /api/auth only checks it). The password
+travels in the URL over plain HTTP, so it keeps casual users out and nothing more. Writes go to the
+USB thread, the only one that touches the device, through a queue -- or, for faders, a dict that
+keeps only the latest value per fader.
 
 Terminal only, no web server: add --no-web (with --debug, --capture and/or --artnet -- there is
 nothing else for it to do). --debug prints every control change to stderr, plus a line for any
@@ -42,7 +51,9 @@ faders) -- shown as lights, decoded from type=0x0c. Also a dedicated
 Physical Faders row: 24 bar+light indicators, one per physical fader,
 mode-agnostic (type=0x0e for the live value, type=0x16 for the Bump LED --
 solid/color-proportional once caught, blinking while the physical fader
-hasn't yet caught its stored logical value after a mode switch). And the console's two
+hasn't yet caught its stored logical value after a mode switch). type=0x16 also carries the Solo,
+BlackOut and MEMS-only Int Only / Go Mode LEDs; every LED's on/off/blinking is read from its real
+colors (protocol.light_state) and sent to the page. And the console's two
 LCDs, mirrored as text (type=0x15), and the Crossfader Live/Next levels (type=0x11). And the
 console's DMX output, both universes (type=0x0d), for the "DMX Outputs" tab.
 
@@ -51,8 +62,8 @@ type=0x0e and the stored type=0x0f bank): a fader at full with Live and Master a
 36%, not 100%.
 """
 import argparse
-import json
 import hmac
+import json
 import queue
 import sys
 import threading

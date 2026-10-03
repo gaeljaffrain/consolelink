@@ -50,10 +50,13 @@ Decodes:
     also currently the only way to see the 3 wheels' live values -- they
     don't touch type=0x0e/0x11 at all, only this LCD text and a
     correlated-but-undecoded type=0x16.
-  - type=0x16 (637 bytes, mostly undecoded): bytes 517-528 are two adjacent
-    6-byte Solo/BlackOut indicator blocks. Bytes `1+6*(N-1)` onward hold
-    fader N's Bump LED as two RGB triples (the two blink phases) -- green in
-    INT/PARAM modes, red in MEMS; see decode_0x16_bump_catch.
+  - type=0x16 (637 bytes, mostly undecoded): the console's LEDs, each a 6-byte
+    block of two RGB triples (the two blink phases). Bytes `1+6*(N-1)` onward hold
+    fader N's Bump LED -- green in INT/PARAM modes, red in MEMS; see
+    decode_0x16_bump_catch. Offsets 517 / 523 are Solo / BlackOut, and 373 / 361 the
+    MEMS-only Int Only / Go Mode (decode_0x16_indicator_lights). light_state() reads
+    on/off/blinking from the colors: idle is at or below LED_IDLE_MAX, a block whose
+    halves differ blinks, anything brighter is on.
   - type=0x17 (7 bytes): the fader-mode selector, all six modes (INT A/INT
     B/INT DEV/PARAM 1/PARAM 2/MEMS) -- only fires unprompted on a mode
     CHANGE, but request_type() gets the true current mode on demand
@@ -63,6 +66,18 @@ Decodes:
   - type=0x0c (85 bytes): Independent 1/2 name + on/off state.
   - Anything else: not decoded here (most buttons, wheels' raw deltas,
     curves, names/groups/cues).
+
+Writes (host -> console; app.py only does them with --allow-write): an OUT msgType=1 header with
+payloadLen = 4 + objLen, then a payload `[seq:1][objLen:2 LE][type:1][data]`; seq is a per-link
+counter that continues from 2 (0 and 1 are the connect-time type=0x27 requests).
+  - type=0x14, data `[1][code][pressed]`: a button press (send_button/press_button): BlackOut,
+    Solo, Ind 1/2, the six fader-mode buttons, Int Only, Go Mode (a toggle flips on the press) and
+    the 24 Bump buttons (held: the channel stays bumped while the button is down).
+  - type=0x14, data `[0][id][value][prev]`: a fader move (send_fader). id is fader-1 for faders
+    1-24, then 24 Master, 25 Bumps, 26 Crossfader Live, 27 Crossfader Next; prev is the last
+    value sent for that id (0 for the first).
+  - type=0x27, subtype 0x0a: pick the MEMS page (send_mems_page); other type=0x27 subtypes are
+    the connect-time GUI requests (send_gui_request).
 """
 
 import struct
@@ -120,8 +135,7 @@ def find_bulk_interface(dev):
 # Console button codes, for ConsoleLink.press_button(). A virtual press is what SmartSoft sends when
 # its Live tab is clicked: the console toggles the function exactly as if its own button were
 # pressed. Confirmed on the console for BlackOut (a press toggles it and the change comes back as a
-# type=0x16 BlackOut indicator update); Solo and the Independents were pressed the same way and their
-# indicators changed too, but are not exposed yet.
+# type=0x16 BlackOut indicator update); Solo, Ind 1/2 and the others below work the same way.
 BUTTON_SOLO = 0x56
 BUTTON_BLACKOUT = 0x57
 BUTTON_IND1 = 0x5F
