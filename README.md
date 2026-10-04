@@ -81,7 +81,7 @@ works out of the box for a user-space process).
 
 ```
 consolelink [--debug] [--capture PATH] [--no-web] [--artnet [DEST]]
-            [--listen localhost|network] [--allow-write [PASSWORD]]
+            [--listen localhost|network] [--port N] [--allow-write [PASSWORD]]
 ```
 
 (or `python -m consolelink ...`). Then open http://localhost:8765. The page updates live as
@@ -111,6 +111,7 @@ ipconfig                 # Windows (look for "IPv4 Address" under your Wi-Fi or 
   `--capture`, `--artnet`.
 - `--listen localhost|network`: who can open the web page. `localhost` (the default) means only
   this machine; `network` also serves it to every device on the same network. Not for `--no-web`.
+- `--port N`: port of the web page. Default 8765.
 - `--allow-write [PASSWORD]`: let the web page control the console: BlackOut, Solo, Ind 1/2, the bump
   buttons (press and hold the LED under a fader), the MEMS page, and the 24 faders, MASTER, BUMPS,
   LIVE and NEXT (drag a bar), and in MEMS mode the INT ONLY and GO MODE buttons. Off by default.
@@ -131,6 +132,31 @@ ipconfig                 # Windows (look for "IPv4 Address" under your Wi-Fi or 
   Default 0.
 - `--artnet-rate HZ`: maximum send rate when levels change. Default 40.
 - `--artnet-keepalive SEC`: re-send the last frame this often when nothing changes. Default 1.
+
+### macOS menu-bar app
+
+On macOS the same service can run from the menu bar instead of the command line (no Dock icon, no
+flags to remember):
+
+```
+pip install 'consolelink[macos]'     # adds rumps and keyring
+consolelink-menubar                  # or: python -m consolelink.menubar
+```
+
+The menu-bar icon (the favicon's three faders, faded while there is no console) and the first menu line show whether the console is connected. The menu has:
+
+- **Open ConsoleLink**: opens the page in the browser.
+- **Phone address** (only when other devices are allowed): the address to open on a phone; click
+  to copy it.
+- **Settings**: allow other devices on the network (`--listen network`), allow control from the
+  page (`--allow-write`), the control password, the Art-Net destination and universe, and the
+  port. The password is kept in the macOS Keychain; the rest in
+  `~/Library/Application Support/ConsoleLink/settings.json`. A change is saved and applied right
+  away (the service restarts).
+- **Quit ConsoleLink**: releases the console before exiting.
+
+Only one program can use the console at a time, so don't run `consolelink` and the menu-bar app
+together. The command line works as before on every system; the menu-bar app is macOS only.
 
 ### Art-Net output
 
@@ -179,12 +205,14 @@ See [`protocol.py`](src/consolelink/protocol.py)'s module docstring for the full
 |---|---|
 | [`src/consolelink/protocol.py`](src/consolelink/protocol.py) | Shared library: USB framing, the idle-poll/announce/ack handshake, and decoders for every known message type. Everything else imports this rather than re-deriving the protocol. |
 | [`src/consolelink/app.py`](src/consolelink/app.py) | The program (the `consolelink` command): polls the console in a background thread and serves [`index.html`](src/consolelink/static/index.html) over Server-Sent Events, so a browser tab shows live values. With `--no-web` it only polls (logging changes with `--debug`, or sending Art-Net). |
+| [`src/consolelink/menubar.py`](src/consolelink/menubar.py), [`menubar_logic.py`](src/consolelink/menubar_logic.py), [`settings_store.py`](src/consolelink/settings_store.py) | The macOS menu-bar app (`consolelink-menubar`): `menubar.py` is the thin rumps layer, the other two hold the testable decisions and the saved settings. It drives `app.Service`, the same start/stop API `consolelink` uses. |
+| [`scripts/make_menubar_icons.py`](scripts/make_menubar_icons.py) | Draws the menu-bar icons (macOS, PyObjC) into `src/consolelink/menubar_icons/`; run again after changing the drawing. |
 | [`src/consolelink/artnet.py`](src/consolelink/artnet.py) | Optional Art-Net output of the two DMX universes, enabled with `--artnet`. |
 | [`src/consolelink/static/index.html`](src/consolelink/static/index.html) | Static single-page UI for `consolelink`: intensity meters (INT A / INT B / INT DEV), physical faders, most important buttons and indicators, like BlackOut and Master, and a mirror of the console's two LCDs, plus a "DMX Outputs" tab showing both DMX universes (1024 channels) at once. |
 | [`src/consolelink/static/app.js`](src/consolelink/static/app.js) | Front-end logic for `index.html`: builds the meter grid, connects to the SSE stream, and renders each incoming state update. |
 | [`src/consolelink/static/style.css`](src/consolelink/static/style.css) | Styling for `index.html`: colours, the meter and indicator layout, the blinking-LED animations, and the breakpoints that reflow the page for phones. |
 | [`src/consolelink/static/favicon.svg`](src/consolelink/static/favicon.svg) | The browser tab icon. |
-| [`pyproject.toml`](pyproject.toml) | Packaging: makes `pip install .` install the package, its web files and the `consolelink` command; lists the dependencies, including the `dev` extra (`pytest`, `bump-my-version`). |
+| [`pyproject.toml`](pyproject.toml) | Packaging: makes `pip install .` install the package, its web files and the `consolelink` command; lists the dependencies, including the `dev` extra (`pytest`, `bump-my-version`) and the `macos` extra (`rumps`, `keyring`). |
 | [`tests/`](tests/) | Decoder and server tests, replaying recorded console traffic from [`tests/fixtures/`](tests/fixtures/) -- no console needed. |
 
 ## Tests

@@ -146,19 +146,28 @@ def add_arguments(parser):
                             f"(default {DEFAULT_KEEPALIVE_S:g}).")
 
 
+def start_sender(dest, universe=0, rate_hz=DEFAULT_RATE_HZ, keepalive_s=DEFAULT_KEEPALIVE_S):
+    """A started ArtNetSender to `dest`. Bad values or an unresolvable/unusable destination
+    raise ValueError (the message is ready to show to the user)."""
+    if not 0 <= universe <= 0x7FFE:
+        raise ValueError("the Art-Net universe must be between 0 and 32766")
+    if rate_hz <= 0 or keepalive_s <= 0:
+        raise ValueError("the Art-Net rate and keepalive must be positive")
+    try:
+        sender = ArtNetSender(dest, universe, rate_hz, keepalive_s)
+    except OSError as e:
+        raise ValueError(f"Art-Net destination {dest!r}: {e}") from e
+    print(f"Art-Net output to {sender.addr[0]}:{sender.addr[1]}, universes "
+          f"{sender.start_universe} and {sender.start_universe + 1}")
+    return sender.start()
+
+
 def sender_from_args(args, parser):
     """A started ArtNetSender if --artnet was given, else None. Bad values exit via parser.error."""
     if args.artnet is None:
         return None
-    if not 0 <= args.artnet_universe <= 0x7FFE:
-        parser.error("--artnet-universe must be between 0 and 32766")
-    if args.artnet_rate <= 0 or args.artnet_keepalive <= 0:
-        parser.error("--artnet-rate and --artnet-keepalive must be positive")
     try:
-        sender = ArtNetSender(args.artnet, args.artnet_universe, args.artnet_rate,
-                              args.artnet_keepalive)
-    except OSError as e:
+        return start_sender(args.artnet, args.artnet_universe, args.artnet_rate,
+                            args.artnet_keepalive)
+    except ValueError as e:
         parser.error(f"--artnet: {e}")
-    print(f"Art-Net output to {sender.addr[0]}:{sender.addr[1]}, universes "
-          f"{sender.start_universe} and {sender.start_universe + 1}")
-    return sender.start()

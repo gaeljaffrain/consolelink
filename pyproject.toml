@@ -11,10 +11,12 @@ requires-python = ">=3.10"
 dependencies = ["pyusb"]  # libusb itself is a native library: see README (Requirements)
 
 [project.optional-dependencies]
+macos = ["rumps", "keyring"]  # the menu-bar app (consolelink-menubar), macOS only
 dev = ["pytest", "bump-my-version"]
 
 [project.scripts]
 consolelink = "consolelink.app:main"
+consolelink-menubar = "consolelink.menubar:main"
 
 [tool.setuptools.dynamic]
 version = {attr = "consolelink.protocol.VERSION"}
@@ -23,7 +25,7 @@ version = {attr = "consolelink.protocol.VERSION"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-consolelink = ["static/*"]
+consolelink = ["static/*", "menubar_icons/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
