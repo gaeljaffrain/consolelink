@@ -155,3 +155,42 @@ def test_auth_check_only_validates_the_password(server):
     mod.state["connected"] = False
     assert post(base, None, "/api/auth", pw="pa%20ss%26word") == 204  # no console needed
     assert mod.button_queue.empty()
+
+
+def raw_post(base, path, headers):
+    req = urllib.request.Request(f"{base}{path}", method="POST", headers=headers)
+    try:
+        return urllib.request.urlopen(req).status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
+def test_no_password_accepts_the_local_page(server):
+    mod, base = server
+    mod.write_enabled = True
+    mod.write_password = ""
+    mod.state["connected"] = True
+    assert post(base, "blackout", pw=None) == 204
+    assert mod.button_queue.get_nowait() == ("tap", 0x57)
+    assert post(base, None, path="/api/auth", pw=None) == 204
+    assert raw_post(base, "/api/button/solo", {"Origin": base}) == 204
+
+
+def test_no_password_refuses_other_origins_and_hosts(server):
+    mod, base = server
+    mod.write_enabled = True
+    mod.write_password = ""
+    mod.state["connected"] = True
+    assert raw_post(base, "/api/button/blackout", {"Origin": "http://evil.example"}) == 403
+    assert raw_post(base, "/api/button/blackout", {"Host": "evil.example"}) == 403  # DNS rebinding
+    assert raw_post(base, "/api/auth", {"Host": "192.168.1.20:8765"}) == 403
+    assert mod.button_queue.empty()
+
+
+def test_password_still_checked_when_given(server):
+    mod, base = server
+    mod.write_enabled = True
+    mod.write_password = "secret"
+    mod.state["connected"] = True
+    assert post(base, "blackout", pw=None) == 401
+    assert post(base, "blackout", pw="wrong") == 401

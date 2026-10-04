@@ -472,25 +472,28 @@ function setLcds(lines) {
   });
 }
 
-// Writing (--allow-write PASSWORD): every write carries the password in the URL (?pw=). It is
-// typed once in the settings and kept in this browser; the server answers 401 to a wrong one, and
-// the page only turns its controls on (body.writable) once the server has accepted it.
+// Writing (--allow-write [PASSWORD]): with a password, every write carries it in the URL (?pw=). It
+// is typed once in the settings and kept in this browser; the server answers 401 to a wrong one, and
+// the page only turns its controls on (body.writable) once the server has accepted it. Without a
+// password (--allow-write on localhost only) the server says so (write_password_required false) and
+// the controls are on straight away.
 const PASSWORD_KEY = "consolelink.password";
 let controlPassword = "";
 try { controlPassword = localStorage.getItem(PASSWORD_KEY) || ""; } catch (e) { /* not persisted */ }
 let passwordOk = false, passwordChecked = false;
 function applyWritable() {
   const enabled = lastState?.write_enabled === true;
-  document.body.classList.toggle("writable", enabled && passwordOk);
-  document.getElementById("pw-setting").hidden = !enabled;
-  const status = !enabled ? "" : !controlPassword ? "Enter the password to control the console."
+  const needsPassword = lastState?.write_password_required === true;
+  document.body.classList.toggle("writable", enabled && (!needsPassword || passwordOk));
+  document.getElementById("pw-setting").hidden = !(enabled && needsPassword);
+  const status = !(enabled && needsPassword) ? "" : !controlPassword ? "Enter the password to control the console."
     : passwordOk ? "Controls unlocked." : "Wrong password.";
   document.getElementById("pw-status").textContent = status;
-  document.getElementById("pw-status").classList.toggle("bad", enabled && !!controlPassword && !passwordOk);
+  document.getElementById("pw-status").classList.toggle("bad", enabled && needsPassword && !!controlPassword && !passwordOk);
 }
 async function checkPassword() {
   passwordOk = false;
-  if (controlPassword && lastState?.write_enabled === true) {
+  if (controlPassword && lastState?.write_enabled === true && lastState?.write_password_required === true) {
     try { passwordOk = (await writePost("/api/auth")).ok; } catch (e) { /* server unreachable */ }
   }
   applyWritable();

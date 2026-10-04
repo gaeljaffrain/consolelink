@@ -80,7 +80,8 @@ works out of the box for a user-space process).
 ## Usage
 
 ```
-consolelink [--debug] [--capture PATH] [--no-web] [--artnet [DEST]] [--allow-write PASSWORD]
+consolelink [--debug] [--capture PATH] [--no-web] [--artnet [DEST]]
+            [--listen localhost|network] [--allow-write [PASSWORD]]
 ```
 
 (or `python -m consolelink ...`). Then open http://localhost:8765. The page updates live as
@@ -89,9 +90,10 @@ controls move; it also auto-reconnects if the console is unplugged and replugged
 For terminal use only, without the web server: `consolelink --no-web --debug` prints
 every control change (and any message type that isn't decoded yet) until Ctrl+C.
 
-The server listens on all network interfaces, so a phone or another computer on
-the same network can open it too, at `http://<IP>:8765`. To get the IP of the
-machine running `consolelink`:
+By default only the machine running `consolelink` can open the page. With `--listen network`
+the server listens on all network interfaces, so a phone or another computer on the same
+network can open it too, at `http://<IP>:8765`. To get the IP of the machine running
+`consolelink`:
 
 ```
 ipconfig getifaddr en0   # macOS (en0 is usually Wi-Fi; try en1 for Ethernet)
@@ -107,13 +109,19 @@ ipconfig                 # Windows (look for "IPv4 Address" under your Wi-Fi or 
   comparing against a packet capture when something behaves unexpectedly.
 - `--no-web`: don't start the web server, just poll the console. Needs at least one of `--debug`,
   `--capture`, `--artnet`.
-- `--allow-write PASSWORD`: let the web page control the console: BlackOut, Solo, Ind 1/2, the bump
+- `--listen localhost|network`: who can open the web page. `localhost` (the default) means only
+  this machine; `network` also serves it to every device on the same network. Not for `--no-web`.
+- `--allow-write [PASSWORD]`: let the web page control the console: BlackOut, Solo, Ind 1/2, the bump
   buttons (press and hold the LED under a fader), the MEMS page, and the 24 faders, MASTER, BUMPS,
   LIVE and NEXT (drag a bar), and in MEMS mode the INT ONLY and GO MODE buttons. Off by default.
-  Every write must carry `PASSWORD`: type it once in the page's settings ("Control password", kept in that browser) and the controls unlock. The password
-  travels in the URL over plain HTTP, so it keeps casual users out and nothing more: enable writing
-  only on a network you trust. On a touch screen a fader must be tapped (it gets an outline) before it
-  drags, so scrolling the page doesn't move faders.
+  With the default `--listen localhost` the password is optional: without one, the controls are
+  unlocked straight away, and the server only accepts writes from the page served on localhost (it
+  checks the Host and Origin headers, so another website open in your browser can't press buttons).
+  With `--listen network` a `PASSWORD` is required, and every write must carry it: type it once in
+  the page's settings ("Control password", kept in that browser) and the controls unlock. The
+  password travels in the URL over plain HTTP, so it keeps casual users out and nothing more:
+  enable writing over the network only on a network you trust. On a touch screen a fader must be
+  tapped (it gets an outline) before it drags, so scrolling the page doesn't move faders.
 - `--artnet [DEST]`: send both DMX universes as Art-Net to `DEST` (an IP address, or `broadcast`).
   Bare `--artnet` sends to `127.0.0.1`. Off by default.
 

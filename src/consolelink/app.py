@@ -3,18 +3,23 @@ Minimal local web app showing live console state: the 24 physical faders'
 current output, plus the console's per-mode intensity memory.
 
 Run:
-    consolelink [--debug] [--capture PATH] [--no-web] [--artnet [DEST]] [--allow-write PASSWORD]
+    consolelink [--debug] [--capture PATH] [--no-web] [--artnet [DEST]]
+              [--listen localhost|network] [--allow-write [PASSWORD]]
 (or `python -m consolelink ...`; `pip install -e .` from the repo creates the command).
-Then open http://localhost:8765 in a browser, or http://<this Mac's LAN IP>:8765 from
-another device on the same network (e.g. `ipconfig getifaddr en0` for the IP; macOS will
-prompt to allow incoming connections for python3 the first time a LAN client connects).
+Then open http://localhost:8765 in a browser. By default only this machine can reach the page
+(--listen localhost); --listen network also serves it to other devices on the same network, at
+http://<this Mac's LAN IP>:8765 (e.g. `ipconfig getifaddr en0` for the IP; macOS will prompt to
+allow incoming connections for python3 the first time a LAN client connects).
 
---allow-write PASSWORD (off by default) lets the page control the console: press its buttons
+--allow-write [PASSWORD] (off by default) lets the page control the console: press its buttons
 (BlackOut, Solo, Ind 1/2, the fader-mode buttons, the MEMS-only Int Only / Go Mode), hold a Bump
 button, drag the 24 faders, MASTER, BUMPS, LIVE and NEXT, and pick the MEMS page. The page sends
-POST /api/button|bump|fader|mems_page/... (see Handler.do_POST); each request must carry
-?pw=PASSWORD (the page asks for it in its settings; POST /api/auth only checks it). The password
-travels in the URL over plain HTTP, so it keeps casual users out and nothing more. Writes go to the
+POST /api/button|bump|fader|mems_page/... (see Handler.do_POST); with a
+PASSWORD each request must carry ?pw=PASSWORD (the page asks for it in its settings; POST
+/api/auth only checks it). The password travels in the URL over plain HTTP, so it keeps casual
+users out and nothing more. It is required with --listen network, optional with --listen
+localhost: without one, writes are accepted only from a page on localhost (Host and Origin
+headers are checked, so another website open in the browser cannot press buttons). Writes go to the
 USB thread, the only one that touches the device, through a queue -- or, for faders, a dict that
 keeps only the latest value per fader.
 
@@ -78,7 +83,9 @@ import usb.util
 from . import artnet
 from . import protocol as sfl
 
-HOST = "0.0.0.0"  # listen on all interfaces, not just loopback, so LAN devices can connect
+# --listen: "localhost" binds loopback only (this machine); "network" binds every interface, so
+# other devices on the network (a phone, another computer) can connect.
+LISTEN_HOSTS = {"localhost": "127.0.0.1", "network": "0.0.0.0"}
 PORT = 8765
 
 # Set from --capture PATH in main(): log every message (known or not) with full hex + a timestamp
@@ -127,6 +134,7 @@ state = {
     "dmx": None,  # None until the first type=0x0d; then [universe 1, universe 2], each a list of
     # 512 raw 0-255 levels (index 0 = address 1) -- see decode_0x0d_dmx in protocol.py
     "write_enabled": False,  # True when started with --allow-write; the page enables its buttons
+    "write_password_required": False,  # True when writes need the password; False: the page needs none
     "last_update": 0.0,
 }
 state_lock = threading.Lock()
@@ -157,9 +165,11 @@ BUTTONS = {"blackout": sfl.BUTTON_BLACKOUT, "solo": sfl.BUTTON_SOLO,
            "mode-param-2": sfl.BUTTON_MODE_PARAM_2, "mode-mems": sfl.BUTTON_MODE_MEMS,
            "int-only": sfl.BUTTON_INT_ONLY, "go-mode": sfl.BUTTON_GO_MODE}
 # Set from --allow-write in main(). Off by default: writing is refused (403) and the page's
-# buttons stay inert, since the server listens on every interface.
+# buttons stay inert.
 write_enabled = False
-# The password the page must send (?pw=...) with every write; set with --allow-write.
+# The password the page must send (?pw=...) with every write; set with --allow-write PASSWORD.
+# Empty means no password: only possible on localhost (--listen localhost), where do_POST instead
+# checks that the request comes from this machine's own page (see _from_own_page).
 write_password = ""
 # Events for the poll thread: ("tap", code), ("press", code), ("keepalive", code), ("release", code),
 # ("page", n).
@@ -670,10 +680,22 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
+    def _from_own_page(self):
+        """With no password, a write must come from the page served by this machine: a Host
+        header naming localhost (blocks DNS rebinding) and, when the browser sends one, an Origin
+        on localhost too (blocks any other website's script from POSTing to localhost:PORT)."""
+        def is_local(value):
+            host = urlsplit(value if "//" in value else "//" + value).hostname
+            return host in ("localhost", "127.0.0.1", "::1")
+        host = self.headers.get("Host", "")
+        origin = self.headers.get("Origin")
+        return is_local(host) and (origin is None or is_local(origin))
+
     def do_POST(self):
         """POST /api/button/<name> (tap), /api/bump/<1-24>/press|keepalive|release (hold),
         /api/fader/<1-24|master|bumps|live|next>/<0-255>, /api/mems_page/<1-12> and
-        /api/auth (password check only). All need --allow-write and ?pw=<password>; all but
+        /api/auth (password check only). All need --allow-write and, if it was given a password,
+        ?pw=<password> (otherwise the request must come from this machine's own page); all but
         /api/auth also need a connected console."""
         url = urlsplit(self.path)
         event = ("auth",) if url.path == "/api/auth" else self._parse_write_request(url.path)
@@ -685,10 +707,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(403)
             self.end_headers()
             return
-        given = parse_qs(url.query).get("pw", [""])[0]
-        if not hmac.compare_digest(given.encode(), write_password.encode()):
-            time.sleep(0.5)  # slows down password guessing
-            self.send_response(401)
+        if write_password:
+            given = parse_qs(url.query).get("pw", [""])[0]
+            if not hmac.compare_digest(given.encode(), write_password.encode()):
+                time.sleep(0.5)  # slows down password guessing
+                self.send_response(401)
+                self.end_headers()
+                return
+        elif not self._from_own_page():
+            self.send_response(403)
             self.end_headers()
             return
         if event[0] == "auth":
@@ -780,8 +807,7 @@ class QuietThreadingHTTPServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
-def main():
-    global debug, capture_path, artnet_sender, write_enabled, write_password
+def build_parser():
     parser = argparse.ArgumentParser(
         description="Local web app showing live console state (physical faders + per-mode intensities).")
     parser.add_argument("--debug", action="store_true",
@@ -795,25 +821,46 @@ def main():
     parser.add_argument("--no-web", action="store_true",
                          help="Don't start the web server; just poll the console (use with "
                               "--debug, --capture and/or --artnet).")
-    parser.add_argument("--allow-write", metavar="PASSWORD", default=None,
+    parser.add_argument("--listen", choices=sorted(LISTEN_HOSTS), default=None,
+                         help="Who can open the web page: 'localhost' (default) only this "
+                              "machine, 'network' also other devices on the same network.")
+    parser.add_argument("--allow-write", metavar="PASSWORD", nargs="?", const="", default=None,
                          help="Let the web page press console buttons (BlackOut, Solo, Ind 1/2, "
-                              "the Bump buttons), pick the MEMS page and move the faders. Every "
-                              "write must carry PASSWORD (the page asks for it in its settings). "
-                              "Off by default. It travels in the URL over plain HTTP, so it keeps "
-                              "casual users out, nothing more: use it on a network you trust.")
+                              "the Bump buttons), pick the MEMS page and move the faders. Off by "
+                              "default. With --listen network a PASSWORD is required (the page "
+                              "asks for it in its settings); with --listen localhost it is "
+                              "optional. The password travels in the URL over plain HTTP, so it "
+                              "keeps casual users out, nothing more: use it on a network you "
+                              "trust.")
     artnet.add_arguments(parser)
-    args = parser.parse_args()
+    return parser
+
+
+def check_args(parser, args):
+    """Reject option combinations that make no sense (parser.error exits), and resolve the
+    --listen default ("localhost")."""
     if args.no_web and not (args.debug or args.capture or args.artnet is not None):
         parser.error("--no-web needs at least one of --debug, --capture, --artnet "
                      "(otherwise there is nothing to do)")
     if args.allow_write is not None and args.no_web:
         parser.error("--allow-write needs the web page (drop --no-web)")
-    if args.allow_write == "":
-        parser.error("--allow-write needs a non-empty PASSWORD")
+    if args.listen and args.no_web:
+        parser.error("--listen needs the web page (drop --no-web)")
+    args.listen = args.listen or "localhost"
+    if args.allow_write == "" and args.listen == "network":
+        parser.error("--allow-write with --listen network needs a PASSWORD: other devices on "
+                     "the network could otherwise control the console")
+
+
+def main():
+    global debug, capture_path, artnet_sender, write_enabled, write_password
+    parser = build_parser()
+    args = parser.parse_args()
+    check_args(parser, args)
     debug = args.debug
     write_enabled = args.allow_write is not None
     write_password = args.allow_write or ""
-    update_state(write_enabled=write_enabled)
+    update_state(write_enabled=write_enabled, write_password_required=bool(write_password))
     capture_path = args.capture
     artnet_sender = artnet.sender_from_args(args, parser)
 
@@ -832,8 +879,9 @@ def main():
             while poll_thread.is_alive():
                 poll_thread.join(timeout=0.5)  # a timeout keeps Ctrl+C responsive
         else:
-            server = QuietThreadingHTTPServer((HOST, PORT), Handler)
-            print(f"Serving on http://{HOST}:{PORT} -- Ctrl+C to stop.")
+            host = LISTEN_HOSTS[args.listen]
+            server = QuietThreadingHTTPServer((host, PORT), Handler)
+            print(f"Serving on http://{host}:{PORT} -- Ctrl+C to stop.")
             server.serve_forever()
     except KeyboardInterrupt:
         print("\nStopping.")
