@@ -15,15 +15,24 @@ Support for more lighting desks may be added in later releases.
 SmartFade and SmartSoft are trademarks of ETC and are used here only to identify compatible products.
 Use at your own risk; no warranty is provided.
 
-## Protocol Study Process
+## Contents
 
-The general process to establish the protocol details was to capture USB traces using the original software and consoles,
-and study the traces to understand the wire protocol.
-
-For the SmartFade ML case in particular, the traces were obtained running the original SmartSoft software
-under Windows 10 against an actual SmartFade ML console. USB traffic was captured with Wireshark.
-Each capture isolated a single step (initial connection, moving one fader, pressing one button, etc.) so the resulting
-traces could be matched to a specific action.
+- [Screenshots](#screenshots)
+- [Requirements](#requirements)
+- [Install](#install)
+  - [Pip](#pip)
+  - [Conda-forge](#conda-forge)
+- [Usage](#usage)
+  - [macOS menu-bar app](#macos-menu-bar-app)
+  - [Art-Net output](#art-net-output)
+- [For Developers](#for-developers)
+  - [How it works](#how-it-works)
+  - [Protocol study process](#protocol-study-process)
+  - [Source files](#source-files)
+  - [Development install](#development-install)
+  - [Tests](#tests)
+  - [Releasing](#releasing)
+- [License](#license)
 
 ## Screenshots
 
@@ -43,6 +52,11 @@ And on a phone, where each row wraps to 6 columns:
   `brew install libusb` on macOS, `sudo apt install libusb-1.0-0` on Debian/Ubuntu
   (Windows: not tried)
 - The console connected over USB and powered on
+
+ConsoleLink looks for the console at `idVendor=0x14D5, idProduct=0x0201` and
+claims the vendor bulk interface directly — no vendor driver required, but you
+may need permissions to access the raw USB device (on macOS this generally
+works out of the box for a user-space process).
 
 ## Install
 
@@ -85,20 +99,6 @@ conda create -n consolelink python=3.11 pyusb libusb
 conda activate consolelink
 pip install '.[menubar]'   # on macOS (recommended); everywhere else: pip install .
 ```
-
-**To work on the code**, install with the `dev` extra (adds `pytest` and `bump-my-version`) and
-`-e`, so edits to the source take effect without reinstalling (new commands still need one reinstall).
-On macOS add the `menubar` extra too:
-
-```
-pip install -e ".[dev]"          # Linux, Windows, Raspberry Pi
-pip install -e ".[dev,menubar]"    # macOS
-```
-
-ConsoleLink looks for the console at `idVendor=0x14D5, idProduct=0x0201` and
-claims the vendor bulk interface directly — no vendor driver required, but you
-may need permissions to access the raw USB device (on macOS this generally
-works out of the box for a user-space process).
 
 ## Usage
 
@@ -164,7 +164,7 @@ On macOS the same service can run from the menu bar instead of the command line 
 
 ```
 pip install '.[menubar]'  # skip if you installed with it already (see Install)
-consolelink-menubar     # or: python -m consolelink.menubar
+consolelink-menubar       # or: python -m consolelink.menubar
 ```
 
 The menu-bar icon (the favicon's three faders, faded while there is no console) and the first menu line show whether the console is connected. The menu has:
@@ -207,7 +207,9 @@ console is unplugged, the last frame keeps being sent.
 Frames go console → USB → this program → UDP with no timing guarantee, so this is fine for
 visualisation and casual use, not for anything where a stall or a frozen frame would be a problem.
 
-## How it works
+## For Developers
+
+### How it works
 
 The console speaks a request/reply protocol over two USB bulk endpoints: a
 12-byte header (msgType, payloadLen, 4×uint16 state) is polled OUT
@@ -223,9 +225,17 @@ probing on connect.
 See [`protocol.py`](src/consolelink/protocol.py)'s module docstring for the full message-type breakdown
 (which types are decoded, which are known-but-not-yet decoded, and why).
 
-# For Developers
+### Protocol study process
 
-## Contents
+The general process to establish the protocol details was to capture USB traces using the original software and consoles,
+and study the traces to understand the wire protocol.
+
+For the SmartFade ML case in particular, the traces were obtained running the original SmartSoft software
+under Windows 10 against an actual SmartFade ML console. USB traffic was captured with Wireshark.
+Each capture isolated a single step (initial connection, moving one fader, pressing one button, etc.) so the resulting
+traces could be matched to a specific action.
+
+### Source files
 
 | File | What it is |
 |---|---|
@@ -241,7 +251,18 @@ See [`protocol.py`](src/consolelink/protocol.py)'s module docstring for the full
 | [`pyproject.toml`](pyproject.toml) | Packaging: makes `pip install .` install the package, its web files and the `consolelink` command; lists the dependencies, including the `dev` extra (`pytest`, `bump-my-version`) and the `menubar` extra (`rumps`, `keyring`; macOS only). |
 | [`tests/`](tests/) | Decoder and server tests, replaying recorded console traffic from [`tests/fixtures/`](tests/fixtures/) -- no console needed. |
 
-## Tests
+### Development install
+
+**To work on the code**, install with the `dev` extra (adds `pytest` and `bump-my-version`) and
+`-e`, so edits to the source take effect without reinstalling (new commands still need one reinstall).
+On macOS add the `menubar` extra too:
+
+```
+pip install -e ".[dev]"          # Linux, Windows, Raspberry Pi
+pip install -e ".[dev,menubar]"    # macOS
+```
+
+### Tests
 
 The tests replay real console traffic recorded from a SmartFade ML, so they
 run without a console attached:
@@ -260,7 +281,7 @@ the tests are what the console itself showed at the time -- not just whatever
 the decoder currently returns -- so a decoder change that breaks one is a real
 regression.
 
-## Releasing
+### Releasing
 
 Release from `main`, after the work is merged from the feature branch:
 
