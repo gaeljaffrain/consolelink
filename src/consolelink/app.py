@@ -4,9 +4,9 @@ current output, plus the console's per-mode intensity memory.
 
 Run:
     consolelink [--debug] [--capture PATH] [--no-web] [--artnet [DEST]]
-              [--listen localhost|network] [--allow-write [PASSWORD]]
+              [--listen localhost|network] [--port N] [--allow-write [PASSWORD]]
 (or `python -m consolelink ...`; `pip install -e .` from the repo creates the command).
-Then open http://localhost:8765 in a browser. By default only this machine can reach the page
+Then open http://localhost:8765 in a browser (--port N for another port). By default only this machine can reach the page
 (--listen localhost); --listen network also serves it to other devices on the same network, at
 http://<this Mac's LAN IP>:8765 (e.g. `ipconfig getifaddr en0` for the IP; macOS will prompt to
 allow incoming connections for python3 the first time a LAN client connects).
@@ -67,6 +67,7 @@ type=0x0e and the stored type=0x0f bank): a fader at full with Live and Master a
 36%, not 100%.
 """
 import argparse
+import dataclasses
 import hmac
 import json
 import queue
@@ -86,9 +87,9 @@ from . import protocol as sfl
 # --listen: "localhost" binds loopback only (this machine); "network" binds every interface, so
 # other devices on the network (a phone, another computer) can connect.
 LISTEN_HOSTS = {"localhost": "127.0.0.1", "network": "0.0.0.0"}
-PORT = 8765
+DEFAULT_PORT = 8765
 
-# Set from --capture PATH in main(): log every message (known or not) with full hex + a timestamp
+# Set from --capture PATH by Service.start(): log every message (known or not) with full hex + a timestamp
 # (see the module docstring).
 capture_path = ""
 
@@ -133,6 +134,7 @@ state = {
     # [LCD 1 line 1, LCD 1 line 2, LCD 2 line 1, LCD 2 line 2] -- see decode_0x15
     "dmx": None,  # None until the first type=0x0d; then [universe 1, universe 2], each a list of
     # 512 raw 0-255 levels (index 0 = address 1) -- see decode_0x0d_dmx in protocol.py
+    "console_busy": False,  # True while a console is plugged in but another program holds it
     "write_enabled": False,  # True when started with --allow-write; the page enables its buttons
     "write_password_required": False,  # True when writes need the password; False: the page needs none
     "last_update": 0.0,
@@ -148,7 +150,7 @@ def update_state(**kwargs):
 
 # Off by default -- run with --debug for per-control change logging, a liveness heartbeat, and
 # announce/ack handshake visibility. Distinguishes "nothing arrived on the wire" from "arrived
-# but decoded/rendered wrong" far faster than guessing. Set from args in main().
+# but decoded/rendered wrong" far faster than guessing. Set from the settings by Service.start().
 debug = False
 _last_logged_master = None
 _last_logged_selection = None
@@ -164,7 +166,7 @@ BUTTONS = {"blackout": sfl.BUTTON_BLACKOUT, "solo": sfl.BUTTON_SOLO,
            "mode-int-dev": sfl.BUTTON_MODE_INT_DEV, "mode-param-1": sfl.BUTTON_MODE_PARAM_1,
            "mode-param-2": sfl.BUTTON_MODE_PARAM_2, "mode-mems": sfl.BUTTON_MODE_MEMS,
            "int-only": sfl.BUTTON_INT_ONLY, "go-mode": sfl.BUTTON_GO_MODE}
-# Set from --allow-write in main(). Off by default: writing is refused (403) and the page's
+# Set from --allow-write by Service.start(). Off by default: writing is refused (403) and the page's
 # buttons stay inert.
 write_enabled = False
 # The password the page must send (?pw=...) with every write; set with --allow-write PASSWORD.
@@ -239,7 +241,7 @@ class HeldButtons:
         self.held.clear()
 
 
-# Set from --artnet in main(): an artnet.ArtNetSender fed with every DMX snapshot, or None.
+# Set from --artnet by Service.start(): an artnet.ArtNetSender fed with every DMX snapshot, or None.
 artnet_sender = None
 
 def handle_payload(obj_type, data):
@@ -426,15 +428,17 @@ def handle_payload(obj_type, data):
 def poll_forever(stop_event):
     """Connect, poll until something goes wrong or the device disappears, then retry."""
     waiting_reported = False
+    busy_reported = False
     while not stop_event.is_set():
         dev = usb.core.find(idVendor=sfl.VENDOR_ID, idProduct=sfl.PRODUCT_ID)
         found = sfl.find_bulk_interface(dev) if dev is not None else None
         if found is None:
-            update_state(connected=False, device=None)
+            update_state(connected=False, device=None, console_busy=False)
+            busy_reported = False
             if not waiting_reported:
                 print("[consolelink] no console found, waiting...", file=sys.stderr)
                 waiting_reported = True
-            time.sleep(2.0)
+            stop_event.wait(2.0)
             continue
         waiting_reported = False
 
@@ -449,10 +453,23 @@ def poll_forever(stop_event):
             dev.set_configuration()
         except usb.core.USBError:
             pass
-        usb.util.claim_interface(dev, intf_num)
+        try:
+            usb.util.claim_interface(dev, intf_num)
+        except usb.core.USBError as e:
+            # Another program (e.g. a second ConsoleLink, or SmartSoft) holds the console: keep
+            # trying until it lets go instead of ending this thread.
+            update_state(connected=False, device=None, console_busy=True)
+            if not busy_reported:
+                print(f"[consolelink] console found but can't be claimed ({e}): in use by another "
+                      "program? waiting...", file=sys.stderr)
+                busy_reported = True
+            usb.util.dispose_resources(dev)
+            stop_event.wait(2.0)
+            continue
+        busy_reported = False
 
         link = sfl.ConsoleLink(dev, ep_in, ep_out)
-        update_state(connected=True, device=sfl.MODEL_NAMES.get(dev.idProduct))
+        update_state(connected=True, device=sfl.MODEL_NAMES.get(dev.idProduct), console_busy=False)
         print(f"[consolelink] connected: {dev.manufacturer!r} {dev.product!r}")
 
         capture_f = open(capture_path, "a") if capture_path else None
@@ -584,6 +601,8 @@ def poll_forever(stop_event):
                 log_capture("announce", obj_type, data)
                 announced_entries = sfl.decode_announce(data)
                 for announced_type, selector in announced_entries:
+                    if stop_event.is_set():
+                        break  # the full catalogue is ~74 entries, seconds of USB round trips
                     # NOTE: every `continue` below silently drops this announced update with
                     # NO retry. Never observed firing in practice, but if a future "misses
                     # the last state" report comes back, enable debug and one of these lines
@@ -637,12 +656,12 @@ def poll_forever(stop_event):
             try:
                 dev.reset()
                 print("[consolelink] device reset; waiting for re-enumeration", file=sys.stderr)
-                time.sleep(2.0)  # give the device time to fully come back before retrying
+                stop_event.wait(2.0)  # give the device time to fully come back before retrying
             except usb.core.USBError as e:
                 print(f"[consolelink] reset failed: {e} -- may need a physical unplug/replug",
                       file=sys.stderr)
         usb.util.dispose_resources(dev)
-        time.sleep(1.0)
+        stop_event.wait(1.0)
 
 
 def _int_in_range(text, lo, hi):
@@ -683,7 +702,7 @@ class Handler(BaseHTTPRequestHandler):
     def _from_own_page(self):
         """With no password, a write must come from the page served by this machine: a Host
         header naming localhost (blocks DNS rebinding) and, when the browser sends one, an Origin
-        on localhost too (blocks any other website's script from POSTing to localhost:PORT)."""
+        on localhost too (blocks any other website's script from POSTing to localhost:<port>)."""
         def is_local(value):
             host = urlsplit(value if "//" in value else "//" + value).hostname
             return host in ("localhost", "127.0.0.1", "::1")
@@ -824,6 +843,8 @@ def build_parser():
     parser.add_argument("--listen", choices=sorted(LISTEN_HOSTS), default=None,
                          help="Who can open the web page: 'localhost' (default) only this "
                               "machine, 'network' also other devices on the same network.")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT, metavar="N",
+                         help=f"Port of the web page (default {DEFAULT_PORT}).")
     parser.add_argument("--allow-write", metavar="PASSWORD", nargs="?", const="", default=None,
                          help="Let the web page press console buttons (BlackOut, Solo, Ind 1/2, "
                               "the Bump buttons), pick the MEMS page and move the faders. Off by "
@@ -834,6 +855,121 @@ def build_parser():
                               "trust.")
     artnet.add_arguments(parser)
     return parser
+
+
+@dataclasses.dataclass
+class Settings:
+    """Everything that configures a running ConsoleLink, whether it comes from the command line
+    (Settings.from_args) or from a GUI wrapper's own preferences."""
+    web: bool = True  # False: no web server, just poll the console (--no-web)
+    listen: str = "localhost"  # key of LISTEN_HOSTS
+    port: int = DEFAULT_PORT
+    allow_write: bool = False
+    password: str = ""  # "" = none (only valid with listen="localhost")
+    artnet_dest: str | None = None  # destination (IP or "broadcast"), None = off
+    artnet_universe: int = 0
+    artnet_rate: float = artnet.DEFAULT_RATE_HZ
+    artnet_keepalive: float = artnet.DEFAULT_KEEPALIVE_S
+    debug: bool = False
+    capture: str = ""
+
+    @classmethod
+    def from_args(cls, args):
+        """From the parsed command line (after check_args has resolved the --listen default)."""
+        return cls(web=not args.no_web, listen=args.listen, port=args.port, allow_write=args.allow_write is not None,
+                   password=args.allow_write or "", artnet_dest=args.artnet,
+                   artnet_universe=args.artnet_universe, artnet_rate=args.artnet_rate,
+                   artnet_keepalive=args.artnet_keepalive, debug=args.debug, capture=args.capture)
+
+    def validate(self):
+        """Raise ValueError (message ready to show to the user) for a setting that makes no sense."""
+        if self.listen not in LISTEN_HOSTS:
+            raise ValueError(f"listen must be one of {', '.join(sorted(LISTEN_HOSTS))}")
+        if not 0 <= self.port <= 65535:
+            raise ValueError("the port must be between 0 and 65535")
+        if self.allow_write and not self.web:
+            raise ValueError("control from the page needs the web page")
+        if self.allow_write and self.listen == "network" and not self.password:
+            raise ValueError("control from other devices on the network needs a password: they "
+                             "could otherwise control the console")
+
+
+class Service:
+    """The running ConsoleLink: USB poll thread, optional web server and Art-Net sender.
+
+    The state lives in this module's globals (one console, one process), so only one Service at
+    a time. start() raises ValueError for bad settings and OSError if the port is taken, without
+    leaving anything running; stop() releases the USB interface, so a new Service can follow."""
+
+    def __init__(self, settings):
+        self.settings = settings
+        self._stop_event = threading.Event()
+        self._poll_thread = None
+        self._server = None
+        self._server_thread = None
+        self._artnet = None
+
+    @property
+    def port(self):
+        """The port actually bound (differs from settings.port when that is 0), or None."""
+        return self._server.server_port if self._server else None
+
+    def start(self):
+        global debug, capture_path, artnet_sender, write_enabled, write_password
+        s = self.settings
+        s.validate()
+        if s.artnet_dest is not None:
+            self._artnet = artnet.start_sender(s.artnet_dest, s.artnet_universe, s.artnet_rate,
+                                               s.artnet_keepalive)
+        try:
+            if s.web:
+                self._server = QuietThreadingHTTPServer((LISTEN_HOSTS[s.listen], s.port), Handler)
+        except OSError:
+            self.stop()
+            raise
+        debug = s.debug
+        capture_path = s.capture
+        artnet_sender = self._artnet
+        write_enabled = s.allow_write
+        write_password = s.password
+        while not button_queue.empty():  # leftovers from a previous run
+            button_queue.get_nowait()
+        with fader_writes_lock:
+            fader_writes.clear()
+        update_state(connected=False, device=None, write_enabled=write_enabled,
+                     write_password_required=bool(write_password))
+        # Not a daemon thread: those are hard-killed at interpreter exit with no chance to run
+        # their `finally` cleanup, which would leave the USB interface claimed/pipes stalled for
+        # the next run. stop() joins it, so release_interface() runs on a normal Ctrl+C.
+        self._poll_thread = threading.Thread(target=poll_forever, args=(self._stop_event,))
+        self._poll_thread.start()
+        if self._server:
+            self._server_thread = threading.Thread(target=self._server.serve_forever,
+                                                   name="http", daemon=True)
+            self._server_thread.start()
+        return self
+
+    def wait(self, timeout):
+        """Block up to `timeout` s; True while the poll thread is still running."""
+        self._poll_thread.join(timeout=timeout)
+        return self._poll_thread.is_alive()
+
+    def stop(self):
+        global artnet_sender
+        self._stop_event.set()
+        if self._server is not None:
+            if self._server_thread is not None:
+                self._server.shutdown()  # blocks until serve_forever returns
+            self._server.server_close()
+        if self._poll_thread is not None:
+            self._poll_thread.join(timeout=5.0)
+            if self._poll_thread.is_alive():
+                print("[consolelink] the console is still busy after 5 s; it may need a USB "
+                      "reset on the next start", file=sys.stderr)
+        if self._artnet is not None:
+            artnet_sender = None
+            self._artnet.stop()
+        self._server = self._server_thread = self._poll_thread = self._artnet = None
 
 
 def check_args(parser, args):
@@ -847,51 +983,36 @@ def check_args(parser, args):
     if args.listen and args.no_web:
         parser.error("--listen needs the web page (drop --no-web)")
     args.listen = args.listen or "localhost"
-    if args.allow_write == "" and args.listen == "network":
-        parser.error("--allow-write with --listen network needs a PASSWORD: other devices on "
-                     "the network could otherwise control the console")
+    try:
+        Settings.from_args(args).validate()
+    except ValueError as e:
+        parser.error(str(e))
 
 
 def main():
-    global debug, capture_path, artnet_sender, write_enabled, write_password
     parser = build_parser()
     args = parser.parse_args()
     check_args(parser, args)
-    debug = args.debug
-    write_enabled = args.allow_write is not None
-    write_password = args.allow_write or ""
-    update_state(write_enabled=write_enabled, write_password_required=bool(write_password))
-    capture_path = args.capture
-    artnet_sender = artnet.sender_from_args(args, parser)
-
-    stop_event = threading.Event()
-    # Not a daemon thread: those are hard-killed at interpreter exit with no chance to run
-    # their `finally` cleanup, which would leave the USB interface claimed/pipes stalled for
-    # the next run. Joining it below ensures release_interface() runs on a normal Ctrl+C.
-    poll_thread = threading.Thread(target=poll_forever, args=(stop_event,))
-    poll_thread.start()
-
+    settings = Settings.from_args(args)
     print(f"ConsoleLink v{sfl.VERSION}")
-    server = None
     try:
-        if args.no_web:
-            print("Polling the console, no web server -- Ctrl+C to stop.")
-            while poll_thread.is_alive():
-                poll_thread.join(timeout=0.5)  # a timeout keeps Ctrl+C responsive
+        service = Service(settings).start()
+    except ValueError as e:
+        parser.error(str(e))
+    except OSError as e:
+        sys.exit(f"Can't listen on port {settings.port}: {e}")
+    try:
+        if settings.web:
+            print(f"Serving on http://{LISTEN_HOSTS[settings.listen]}:{service.port} "
+                  "-- Ctrl+C to stop.")
         else:
-            host = LISTEN_HOSTS[args.listen]
-            server = QuietThreadingHTTPServer((host, PORT), Handler)
-            print(f"Serving on http://{host}:{PORT} -- Ctrl+C to stop.")
-            server.serve_forever()
+            print("Polling the console, no web server -- Ctrl+C to stop.")
+        while service.wait(0.5):  # a timeout keeps Ctrl+C responsive
+            pass
     except KeyboardInterrupt:
         print("\nStopping.")
     finally:
-        stop_event.set()
-        if server is not None:
-            server.shutdown()
-        poll_thread.join(timeout=5.0)
-        if artnet_sender is not None:
-            artnet_sender.stop()
+        service.stop()
 
 
 if __name__ == "__main__":
