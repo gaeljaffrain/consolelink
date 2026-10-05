@@ -15,25 +15,34 @@ Support for more lighting desks may be added in later releases.
 SmartFade and SmartSoft are trademarks of ETC and are used here only to identify compatible products.
 Use at your own risk; no warranty is provided.
 
-## Protocol Study Process
+## Contents
 
-The general process to establish the protocol details was to capture USB traces using the original software and consoles,
-and study the traces to understand the wire protocol.
-
-For the SmartFade ML case in particular, the traces were obtained running the original SmartSoft software
-under Windows 10 against an actual SmartFade ML console. USB traffic was captured with Wireshark.
-Each capture isolated a single step (initial connection, moving one fader, pressing one button, etc.) so the resulting
-traces could be matched to a specific action.
+- [Screenshots](#screenshots)
+- [Requirements](#requirements)
+- [Install](#install)
+  - [pipx](#pipx-recommended)
+  - [pip](#pip)
+- [Usage](#usage)
+  - [macOS menu-bar app](#macos-menu-bar-app)
+  - [Art-Net output](#art-net-output)
+- [For Developers](#for-developers)
+  - [How it works](#how-it-works)
+  - [Protocol study process](#protocol-study-process)
+  - [Source files](#source-files)
+  - [Install from source](#install-from-source)
+  - [Tests](#tests)
+  - [Releasing](#releasing)
+- [License](#license)
 
 ## Screenshots
 
 The web app (`consolelink`) in a desktop browser:
 
-![consolelink web app on a desktop browser: Master, Bumps, Independents, Crossfader and both LCDs on top, then the INT A, INT B and INT DEV intensity rows and the 24 physical faders](screenshots/desktop_v0.1.5.png)
+![consolelink web app on a desktop browser: Master, Bumps, Independents, Crossfader and both LCDs on top, then the INT A, INT B and INT DEV intensity rows and the 24 physical faders](https://raw.githubusercontent.com/gaeljaffrain/consolelink/main/screenshots/desktop_v0.1.5.png)
 
 And on a phone, where each row wraps to 6 columns:
 
-<img src="screenshots/mobile_v0.1.5.png" width="300" alt="consolelink web app on a phone: the same controls with rows wrapped to 6 columns">
+<img src="https://raw.githubusercontent.com/gaeljaffrain/consolelink/main/screenshots/mobile_v0.1.5.png" width="300" alt="consolelink web app on a phone: the same controls with rows wrapped to 6 columns">
 
 ## Requirements
 
@@ -44,61 +53,57 @@ And on a phone, where each row wraps to 6 columns:
   (Windows: not tried)
 - The console connected over USB and powered on
 
+ConsoleLink looks for the console at `idVendor=0x14D5, idProduct=0x0201` and
+claims the vendor bulk interface directly — no vendor driver required, but you
+may need permissions to access the raw USB device (on macOS this generally
+works out of the box for a user-space process).
+
 ## Install
 
-### Pip
+### pipx (recommended)
 
-Run these from the folder that contains `pyproject.toml` (your clone of this repo):
+[pipx](https://pipx.pypa.io) installs a command-line app into its own private environment and puts
+the command on your PATH, so there is no virtual environment to create or activate.
+Install pipx first if you don't have it:
 
-```
-python3 -m venv .venv
-source .venv/bin/activate
-```
+- macOS: `brew install pipx`
+- Debian, Ubuntu, Raspberry Pi OS: `sudo apt install pipx`
+- Anywhere with Python: `python3 -m pip install --user pipx`
 
-Then install, depending on your system:
+Then install ConsoleLink, depending on your system:
 
-- **macOS (recommended, includes the menu-bar app):**
+- **macOS (includes the menu-bar app):**
 
   ```
-  pip install '.[menubar]'
+  pipx install 'consolelink[menubar]'
   ```
 
 - **Linux, Windows, Raspberry Pi, or macOS with the command line only:**
 
   ```
-  pip install .
+  pipx install consolelink
   ```
 
 Both install `pyusb`, the package with its web files, and the `consolelink` command. The `menubar`
 extra also installs `rumps` and `keyring`, which the menu-bar app
 ([below](#macos-menu-bar-app)) needs (macOS only: elsewhere the extra adds nothing).
-Activate the environment again (`source .venv/bin/activate`) in any new terminal before running
-`consolelink`.
+To update later: `pipx upgrade consolelink`.
 
-### Conda-forge
+### pip
 
-**With conda instead:** conda-forge packages `libusb` together with `pyusb`, so there's no
-separate system install.
+The same packages with plain `pip`, inside a virtual environment:
 
 ```
-conda create -n consolelink python=3.11 pyusb libusb
-conda activate consolelink
-pip install '.[menubar]'   # on macOS (recommended); everywhere else: pip install .
+python3 -m venv consolelink-env
+source consolelink-env/bin/activate
+pip install 'consolelink[menubar]'   # macOS; everywhere else: pip install consolelink
 ```
 
-**To work on the code**, install with the `dev` extra (adds `pytest` and `bump-my-version`) and
-`-e`, so edits to the source take effect without reinstalling (new commands still need one reinstall).
-On macOS add the `menubar` extra too:
+Activate the environment again (`source consolelink-env/bin/activate`) in any new terminal before
+running `consolelink`.
 
-```
-pip install -e ".[dev]"          # Linux, Windows, Raspberry Pi
-pip install -e ".[dev,menubar]"    # macOS
-```
-
-ConsoleLink looks for the console at `idVendor=0x14D5, idProduct=0x0201` and
-claims the vendor bulk interface directly — no vendor driver required, but you
-may need permissions to access the raw USB device (on macOS this generally
-works out of the box for a user-space process).
+Using conda? `conda install pipx` and follow the pipx steps, or run the pip command inside a conda
+environment (conda-forge also provides `libusb`, so no separate system install).
 
 ## Usage
 
@@ -107,7 +112,7 @@ consolelink [--debug] [--capture PATH] [--no-web] [--artnet [DEST]]
             [--listen localhost|network] [--port N] [--allow-write [PASSWORD]]
 ```
 
-(or `python -m consolelink ...`). Then open http://localhost:8765. The page updates live as
+Then open http://localhost:8765. The page updates live as
 controls move; it also auto-reconnects if the console is unplugged and replugged.
 
 For terminal use only, without the web server: `consolelink --no-web --debug` prints
@@ -158,13 +163,13 @@ ipconfig                 # Windows (look for "IPv4 Address" under your Wi-Fi or 
 
 ### macOS menu-bar app
 
-<img src="screenshots/menubar_v0.1.5.png" width="400" alt="consolelink menubar: GUI for all options">
+<img src="https://raw.githubusercontent.com/gaeljaffrain/consolelink/main/screenshots/menubar_v0.1.5.png" width="400" alt="consolelink menubar: GUI for all options">
 
-On macOS the same service can run from the menu bar instead of the command line (no Dock icon, no flags to remember):
+On macOS the same service can run from the menu bar instead of the command line (no Dock icon, no flags to remember).
+It needs the `menubar` extra (see [Install](#install)); then start it with:
 
 ```
-pip install '.[menubar]'  # skip if you installed with it already (see Install)
-consolelink-menubar     # or: python -m consolelink.menubar
+consolelink-menubar
 ```
 
 The menu-bar icon (the favicon's three faders, faded while there is no console) and the first menu line show whether the console is connected. The menu has:
@@ -207,7 +212,9 @@ console is unplugged, the last frame keeps being sent.
 Frames go console → USB → this program → UDP with no timing guarantee, so this is fine for
 visualisation and casual use, not for anything where a stall or a frozen frame would be a problem.
 
-## How it works
+## For Developers
+
+### How it works
 
 The console speaks a request/reply protocol over two USB bulk endpoints: a
 12-byte header (msgType, payloadLen, 4×uint16 state) is polled OUT
@@ -220,34 +227,55 @@ ConsoleLink also proactively requests the types it needs at connect time
 the console's own unprompted announce loses a race against the OS's USB
 probing on connect.
 
-See [`protocol.py`](src/consolelink/protocol.py)'s module docstring for the full message-type breakdown
+See [`protocol.py`](https://github.com/gaeljaffrain/consolelink/blob/main/src/consolelink/protocol.py)'s module docstring for the full message-type breakdown
 (which types are decoded, which are known-but-not-yet decoded, and why).
 
-# For Developers
+### Protocol study process
 
-## Contents
+The general process to establish the protocol details was to capture USB traces using the original software and consoles,
+and study the traces to understand the wire protocol.
+
+For the SmartFade ML case in particular, the traces were obtained running the original SmartSoft software
+under Windows 10 against an actual SmartFade ML console. USB traffic was captured with Wireshark.
+Each capture isolated a single step (initial connection, moving one fader, pressing one button, etc.) so the resulting
+traces could be matched to a specific action.
+
+### Source files
 
 | File | What it is |
 |---|---|
-| [`src/consolelink/protocol.py`](src/consolelink/protocol.py) | Shared library: USB framing, the idle-poll/announce/ack handshake, and decoders for every known message type. Everything else imports this rather than re-deriving the protocol. |
-| [`src/consolelink/app.py`](src/consolelink/app.py) | The program (the `consolelink` command): polls the console in a background thread and serves [`index.html`](src/consolelink/static/index.html) over Server-Sent Events, so a browser tab shows live values. With `--no-web` it only polls (logging changes with `--debug`, or sending Art-Net). |
-| [`src/consolelink/menubar.py`](src/consolelink/menubar.py), [`menubar_logic.py`](src/consolelink/menubar_logic.py), [`menubar_qr.py`](src/consolelink/menubar_qr.py), [`settings_store.py`](src/consolelink/settings_store.py) | The macOS menu-bar app (`consolelink-menubar`): `menubar.py` is the thin rumps layer, `menubar_logic.py` and `settings_store.py` hold the testable decisions and the saved settings, and `menubar_qr.py` draws the server address as a QR code (Core Image, no extra dependency). It drives `app.Service`, the same start/stop API `consolelink` uses. |
-| [`scripts/make_menubar_icons.py`](scripts/make_menubar_icons.py) | Draws the menu-bar icons (macOS, PyObjC) into `src/consolelink/menubar_icons/`; run again after changing the drawing. |
-| [`src/consolelink/artnet.py`](src/consolelink/artnet.py) | Optional Art-Net output of the two DMX universes, enabled with `--artnet`. |
-| [`src/consolelink/static/index.html`](src/consolelink/static/index.html) | Static single-page UI for `consolelink`: intensity meters (INT A / INT B / INT DEV), physical faders, most important buttons and indicators, like BlackOut and Master, and a mirror of the console's two LCDs, plus a "DMX Outputs" tab showing both DMX universes (1024 channels) at once. |
-| [`src/consolelink/static/app.js`](src/consolelink/static/app.js) | Front-end logic for `index.html`: builds the meter grid, connects to the SSE stream, and renders each incoming state update. |
-| [`src/consolelink/static/style.css`](src/consolelink/static/style.css) | Styling for `index.html`: colours, the meter and indicator layout, the blinking-LED animations, and the breakpoints that reflow the page for phones. |
-| [`src/consolelink/static/favicon.svg`](src/consolelink/static/favicon.svg) | The browser tab icon. |
-| [`pyproject.toml`](pyproject.toml) | Packaging: makes `pip install .` install the package, its web files and the `consolelink` command; lists the dependencies, including the `dev` extra (`pytest`, `bump-my-version`) and the `menubar` extra (`rumps`, `keyring`; macOS only). |
-| [`tests/`](tests/) | Decoder and server tests, replaying recorded console traffic from [`tests/fixtures/`](tests/fixtures/) -- no console needed. |
+| [`src/consolelink/protocol.py`](https://github.com/gaeljaffrain/consolelink/blob/main/src/consolelink/protocol.py) | Shared library: USB framing, the idle-poll/announce/ack handshake, and decoders for every known message type. Everything else imports this rather than re-deriving the protocol. |
+| [`src/consolelink/app.py`](https://github.com/gaeljaffrain/consolelink/blob/main/src/consolelink/app.py) | The program (the `consolelink` command): polls the console in a background thread and serves [`index.html`](https://github.com/gaeljaffrain/consolelink/blob/main/src/consolelink/static/index.html) over Server-Sent Events, so a browser tab shows live values. With `--no-web` it only polls (logging changes with `--debug`, or sending Art-Net). |
+| [`src/consolelink/menubar.py`](https://github.com/gaeljaffrain/consolelink/blob/main/src/consolelink/menubar.py), [`menubar_logic.py`](https://github.com/gaeljaffrain/consolelink/blob/main/src/consolelink/menubar_logic.py), [`menubar_qr.py`](https://github.com/gaeljaffrain/consolelink/blob/main/src/consolelink/menubar_qr.py), [`settings_store.py`](https://github.com/gaeljaffrain/consolelink/blob/main/src/consolelink/settings_store.py) | The macOS menu-bar app (`consolelink-menubar`): `menubar.py` is the thin rumps layer, `menubar_logic.py` and `settings_store.py` hold the testable decisions and the saved settings, and `menubar_qr.py` draws the server address as a QR code (Core Image, no extra dependency). It drives `app.Service`, the same start/stop API `consolelink` uses. |
+| [`scripts/make_menubar_icons.py`](https://github.com/gaeljaffrain/consolelink/blob/main/scripts/make_menubar_icons.py) | Draws the menu-bar icons (macOS, PyObjC) into `src/consolelink/menubar_icons/`; run again after changing the drawing. |
+| [`src/consolelink/artnet.py`](https://github.com/gaeljaffrain/consolelink/blob/main/src/consolelink/artnet.py) | Optional Art-Net output of the two DMX universes, enabled with `--artnet`. |
+| [`src/consolelink/static/index.html`](https://github.com/gaeljaffrain/consolelink/blob/main/src/consolelink/static/index.html) | Static single-page UI for `consolelink`: intensity meters (INT A / INT B / INT DEV), physical faders, most important buttons and indicators, like BlackOut and Master, and a mirror of the console's two LCDs, plus a "DMX Outputs" tab showing both DMX universes (1024 channels) at once. |
+| [`src/consolelink/static/app.js`](https://github.com/gaeljaffrain/consolelink/blob/main/src/consolelink/static/app.js) | Front-end logic for `index.html`: builds the meter grid, connects to the SSE stream, and renders each incoming state update. |
+| [`src/consolelink/static/style.css`](https://github.com/gaeljaffrain/consolelink/blob/main/src/consolelink/static/style.css) | Styling for `index.html`: colours, the meter and indicator layout, the blinking-LED animations, and the breakpoints that reflow the page for phones. |
+| [`src/consolelink/static/favicon.svg`](https://github.com/gaeljaffrain/consolelink/blob/main/src/consolelink/static/favicon.svg) | The browser tab icon. |
+| [`pyproject.toml`](https://github.com/gaeljaffrain/consolelink/blob/main/pyproject.toml) | Packaging: makes `pip install .` install the package, its web files and the `consolelink` command; lists the dependencies, including the `dev` extra (`pytest`, `bump-my-version`) and the `menubar` extra (`rumps`, `keyring`; macOS only). |
+| [`tests/`](https://github.com/gaeljaffrain/consolelink/blob/main/tests/) | Decoder and server tests, replaying recorded console traffic from [`tests/fixtures/`](https://github.com/gaeljaffrain/consolelink/blob/main/tests/fixtures/) -- no console needed. |
 
-## Tests
+### Install from source
+
+To run an unreleased version, or to work on the code, clone the repository and install from the folder that
+contains `pyproject.toml`: `pip install .` (or `pip install '.[menubar]'` on macOS).
+
+**To work on the code**, install with the `dev` extra (adds `pytest` and `bump-my-version`) and
+`-e`, so edits to the source take effect without reinstalling (new commands still need one reinstall).
+On macOS add the `menubar` extra too:
+
+```
+pip install -e ".[dev]"            # Linux, Windows, Raspberry Pi
+pip install -e ".[dev,menubar]"    # macOS
+```
+
+### Tests
 
 The tests replay real console traffic recorded from a SmartFade ML, so they
 run without a console attached:
 
 ```
-pip install -e ".[dev]"    # once (on macOS: ".[dev,menubar]", the menu-bar tests need it)
 python -m pytest
 ```
 
@@ -260,7 +288,7 @@ the tests are what the console itself showed at the time -- not just whatever
 the decoder currently returns -- so a decoder change that breaks one is a real
 regression.
 
-## Releasing
+### Releasing
 
 Release from `main`, after the work is merged from the feature branch:
 
@@ -271,15 +299,19 @@ bump-my-version bump patch     # or minor / major; add --dry-run -vv to preview
 git push --follow-tags         # pushes the commit and the tag together
 ```
 
+Pushing the tag starts the `release` workflow (`.github/workflows/release.yml`): it runs the tests,
+builds the package, and publishes it to PyPI with trusted publishing (no API token is stored). The
+`pypi` GitHub environment requires a reviewer, so approve the run in the Actions tab. A PyPI version can
+never be uploaded twice: if a release is bad, yank it on PyPI and release the next version.
+
 `bump-my-version` (part of the `dev` extra) edits `VERSION` in `src/consolelink/protocol.py`,
 commits it, and creates an annotated tag, so the file and the tag can't drift apart. Going from
 0.1.1 to 0.1.2, for example, it commits "Bump version: 0.1.1 → 0.1.2" and tags that commit `v0.1.2`
-(annotated: the tag records who made it, when, and the message "Version 0.1.2"). Don't edit
-`VERSION` by hand.
+(annotated: the tag records who made it, when, and the message "Version 0.1.2"). 
+Don't edit `VERSION` by hand. 
 
-Don't bump on a feature branch and merge it afterwards: a rebase or squash merge re-creates the
-commits with new IDs, and the tag stays on the old one, which is no longer on `main`.
+Bump on a feature branch is blocked.
 
 ## License
 
-MIT -- see [`LICENSE`](LICENSE).
+MIT -- see [`LICENSE`](https://github.com/gaeljaffrain/consolelink/blob/main/LICENSE).

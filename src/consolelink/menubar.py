@@ -1,7 +1,7 @@
 """ConsoleLink as a macOS menu-bar app (no Dock icon): the same service the command line runs
 (app.Service), driven from a menu instead of flags.
 
-    pip install '.[menubar]'    (from the folder with pyproject.toml)
+    pip install 'consolelink[menubar]'    (or pipx install, see the README)
     consolelink-menubar        (or: python -m consolelink.menubar)
 
 The menu shows whether the console is connected, opens the page, shows (and copies) the address
@@ -21,12 +21,13 @@ import webbrowser
 
 from . import app, menubar_logic as logic
 from .settings_store import SettingsStore
-from . import menubar_qr
 
 try:
     import rumps
+    from . import menubar_qr  # Core Image via PyObjC: macOS only, like rumps
 except ImportError:  # not macOS, or the [menubar] extra isn't installed: main() explains
     rumps = None
+    menubar_qr = None
 
 
 def _icon_path(connected):
@@ -272,8 +273,7 @@ def main():
     if sys.platform != "darwin":
         sys.exit("The menu-bar app is for macOS. On this system run `consolelink` instead.")
     if rumps is None:
-        sys.exit("The menu-bar app needs rumps and keyring: pip install '.[menubar]' "
-                 "(from the folder with pyproject.toml)")
+        sys.exit("The menu-bar app needs rumps and keyring: pip install 'consolelink[menubar]'")
     from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
     NSApplication.sharedApplication().setActivationPolicy_(NSApplicationActivationPolicyAccessory)
     ConsoleLinkApp().run()
