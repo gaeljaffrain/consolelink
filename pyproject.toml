@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "consolelink"
 dynamic = ["version"]
-description = "Live view of an ETC SmartFade ML lighting console over USB, with optional Art-Net output"
+description = "Web interface and Art-Net output for ETC SmartFade ML lighting consoles, over USB"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
