@@ -29,11 +29,11 @@ traces could be matched to a specific action.
 
 The web app (`consolelink`) in a desktop browser:
 
-![consolelink web app on a desktop browser: Master, Bumps, Independents, Crossfader and both LCDs on top, then the INT A, INT B and INT DEV intensity rows and the 24 physical faders](screenshots/desktop.png)
+![consolelink web app on a desktop browser: Master, Bumps, Independents, Crossfader and both LCDs on top, then the INT A, INT B and INT DEV intensity rows and the 24 physical faders](screenshots/desktop_v0.1.5.png)
 
 And on a phone, where each row wraps to 6 columns:
 
-<img src="screenshots/mobile.png" width="300" alt="consolelink web app on a phone: the same controls with rows wrapped to 6 columns">
+<img src="screenshots/mobile_v0.1.5.png" width="300" alt="consolelink web app on a phone: the same controls with rows wrapped to 6 columns">
 
 ## Requirements
 
@@ -157,6 +157,8 @@ ipconfig                 # Windows (look for "IPv4 Address" under your Wi-Fi or 
 - `--artnet-keepalive SEC`: re-send the last frame this often when nothing changes. Default 1.
 
 ### macOS menu-bar app
+
+<img src="screenshots/menubar_v0.1.5.png" width="400" alt="consolelink menubar: GUI for all options">
 
 On macOS the same service can run from the menu bar instead of the command line (no Dock icon, no flags to remember):
 
