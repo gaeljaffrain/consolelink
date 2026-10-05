@@ -1,5 +1,5 @@
 """The decisions behind the macOS menu-bar app, kept free of rumps/Cocoa so they run (and are
-tested) on any OS: what the status line says, which address a phone should open, and whether a
+tested) on any OS: what the status line says, which address another device should open, and whether a
 settings change is allowed."""
 import dataclasses
 import socket
@@ -38,9 +38,9 @@ def local_url(port):
     return f"http://localhost:{port}"
 
 
-def phone_url(settings, port, ip):
-    """The address for another device, or None when the page is only served to this machine (or
-    there is no network address)."""
+def server_url(settings, port, ip):
+    """The address another device (phone, tablet) opens, shown as text and as a QR code; None
+    when the page is only served to this machine (or there is no network address)."""
     if settings.listen != "network" or not ip:
         return None
     return f"http://{ip}:{port}"

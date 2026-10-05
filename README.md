@@ -46,15 +46,36 @@ And on a phone, where each row wraps to 6 columns:
 
 ## Install
 
+### Pip
+
+Run these from the folder that contains `pyproject.toml` (your clone of this repo):
+
 ```
 python3 -m venv .venv
 source .venv/bin/activate
-pip install .
 ```
 
-`pip install .` installs `pyusb`, the package with its web files, and the `consolelink` command.
+Then install, depending on your system:
+
+- **macOS (recommended, includes the menu-bar app):**
+
+  ```
+  pip install '.[menubar]'
+  ```
+
+- **Linux, Windows, Raspberry Pi, or macOS with the command line only:**
+
+  ```
+  pip install .
+  ```
+
+Both install `pyusb`, the package with its web files, and the `consolelink` command. The `menubar`
+extra also installs `rumps` and `keyring`, which the menu-bar app
+([below](#macos-menu-bar-app)) needs (macOS only: elsewhere the extra adds nothing).
 Activate the environment again (`source .venv/bin/activate`) in any new terminal before running
 `consolelink`.
+
+### Conda-forge
 
 **With conda instead:** conda-forge packages `libusb` together with `pyusb`, so there's no
 separate system install.
@@ -62,14 +83,16 @@ separate system install.
 ```
 conda create -n consolelink python=3.11 pyusb libusb
 conda activate consolelink
-pip install .
+pip install '.[menubar]'   # on macOS (recommended); everywhere else: pip install .
 ```
 
 **To work on the code**, install with the `dev` extra (adds `pytest` and `bump-my-version`) and
-`-e`, so edits to the source take effect without reinstalling:
+`-e`, so edits to the source take effect without reinstalling (new commands still need one reinstall).
+On macOS add the `menubar` extra too:
 
 ```
-pip install -e ".[dev]"
+pip install -e ".[dev]"          # Linux, Windows, Raspberry Pi
+pip install -e ".[dev,menubar]"    # macOS
 ```
 
 ConsoleLink looks for the console at `idVendor=0x14D5, idProduct=0x0201` and
@@ -135,19 +158,20 @@ ipconfig                 # Windows (look for "IPv4 Address" under your Wi-Fi or 
 
 ### macOS menu-bar app
 
-On macOS the same service can run from the menu bar instead of the command line (no Dock icon, no
-flags to remember):
+On macOS the same service can run from the menu bar instead of the command line (no Dock icon, no flags to remember):
 
 ```
-pip install 'consolelink[macos]'     # adds rumps and keyring
-consolelink-menubar                  # or: python -m consolelink.menubar
+pip install '.[menubar]'  # skip if you installed with it already (see Install)
+consolelink-menubar     # or: python -m consolelink.menubar
 ```
 
 The menu-bar icon (the favicon's three faders, faded while there is no console) and the first menu line show whether the console is connected. The menu has:
 
 - **Open ConsoleLink**: opens the page in the browser.
-- **Phone address** (only when other devices are allowed): the address to open on a phone; click
-  to copy it.
+- **Server address** (only when other devices are allowed): the address another device opens;
+  click to copy it. **Show QR code…** opens a small window with that address as a QR code: scan it
+  with a phone or tablet camera to open the page. The code holds the address only, never the
+  password.
 - **Settings**: allow other devices on the network (`--listen network`), allow control from the
   page (`--allow-write`), the control password, the Art-Net destination and universe, and the
   port. The password is kept in the macOS Keychain; the rest in
@@ -205,14 +229,14 @@ See [`protocol.py`](src/consolelink/protocol.py)'s module docstring for the full
 |---|---|
 | [`src/consolelink/protocol.py`](src/consolelink/protocol.py) | Shared library: USB framing, the idle-poll/announce/ack handshake, and decoders for every known message type. Everything else imports this rather than re-deriving the protocol. |
 | [`src/consolelink/app.py`](src/consolelink/app.py) | The program (the `consolelink` command): polls the console in a background thread and serves [`index.html`](src/consolelink/static/index.html) over Server-Sent Events, so a browser tab shows live values. With `--no-web` it only polls (logging changes with `--debug`, or sending Art-Net). |
-| [`src/consolelink/menubar.py`](src/consolelink/menubar.py), [`menubar_logic.py`](src/consolelink/menubar_logic.py), [`settings_store.py`](src/consolelink/settings_store.py) | The macOS menu-bar app (`consolelink-menubar`): `menubar.py` is the thin rumps layer, the other two hold the testable decisions and the saved settings. It drives `app.Service`, the same start/stop API `consolelink` uses. |
+| [`src/consolelink/menubar.py`](src/consolelink/menubar.py), [`menubar_logic.py`](src/consolelink/menubar_logic.py), [`menubar_qr.py`](src/consolelink/menubar_qr.py), [`settings_store.py`](src/consolelink/settings_store.py) | The macOS menu-bar app (`consolelink-menubar`): `menubar.py` is the thin rumps layer, `menubar_logic.py` and `settings_store.py` hold the testable decisions and the saved settings, and `menubar_qr.py` draws the server address as a QR code (Core Image, no extra dependency). It drives `app.Service`, the same start/stop API `consolelink` uses. |
 | [`scripts/make_menubar_icons.py`](scripts/make_menubar_icons.py) | Draws the menu-bar icons (macOS, PyObjC) into `src/consolelink/menubar_icons/`; run again after changing the drawing. |
 | [`src/consolelink/artnet.py`](src/consolelink/artnet.py) | Optional Art-Net output of the two DMX universes, enabled with `--artnet`. |
 | [`src/consolelink/static/index.html`](src/consolelink/static/index.html) | Static single-page UI for `consolelink`: intensity meters (INT A / INT B / INT DEV), physical faders, most important buttons and indicators, like BlackOut and Master, and a mirror of the console's two LCDs, plus a "DMX Outputs" tab showing both DMX universes (1024 channels) at once. |
 | [`src/consolelink/static/app.js`](src/consolelink/static/app.js) | Front-end logic for `index.html`: builds the meter grid, connects to the SSE stream, and renders each incoming state update. |
 | [`src/consolelink/static/style.css`](src/consolelink/static/style.css) | Styling for `index.html`: colours, the meter and indicator layout, the blinking-LED animations, and the breakpoints that reflow the page for phones. |
 | [`src/consolelink/static/favicon.svg`](src/consolelink/static/favicon.svg) | The browser tab icon. |
-| [`pyproject.toml`](pyproject.toml) | Packaging: makes `pip install .` install the package, its web files and the `consolelink` command; lists the dependencies, including the `dev` extra (`pytest`, `bump-my-version`) and the `macos` extra (`rumps`, `keyring`). |
+| [`pyproject.toml`](pyproject.toml) | Packaging: makes `pip install .` install the package, its web files and the `consolelink` command; lists the dependencies, including the `dev` extra (`pytest`, `bump-my-version`) and the `menubar` extra (`rumps`, `keyring`; macOS only). |
 | [`tests/`](tests/) | Decoder and server tests, replaying recorded console traffic from [`tests/fixtures/`](tests/fixtures/) -- no console needed. |
 
 ## Tests
@@ -221,7 +245,7 @@ The tests replay real console traffic recorded from a SmartFade ML, so they
 run without a console attached:
 
 ```
-pip install -e ".[dev]"    # once
+pip install -e ".[dev]"    # once (on macOS: ".[dev,menubar]", the menu-bar tests need it)
 python -m pytest
 ```
 

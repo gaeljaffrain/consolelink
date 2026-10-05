@@ -1,11 +1,11 @@
 """ConsoleLink as a macOS menu-bar app (no Dock icon): the same service the command line runs
 (app.Service), driven from a menu instead of flags.
 
-    pip install 'consolelink[macos]'
+    pip install '.[menubar]'    (from the folder with pyproject.toml)
     consolelink-menubar        (or: python -m consolelink.menubar)
 
 The menu shows whether the console is connected, opens the page, shows (and copies) the address
-for a phone, and holds the settings: network access, control from the page, the control password
+for another device, and holds the settings: network access, control from the page, the control password
 (kept in the Keychain), the Art-Net destination and universe, and the port. A change is saved and
 applied by stopping and restarting the service. Quit releases the USB interface first.
 
@@ -21,10 +21,11 @@ import webbrowser
 
 from . import app, menubar_logic as logic
 from .settings_store import SettingsStore
+from . import menubar_qr
 
 try:
     import rumps
-except ImportError:  # not macOS, or the [macos] extra isn't installed: main() explains
+except ImportError:  # not macOS, or the [menubar] extra isn't installed: main() explains
     rumps = None
 
 
@@ -58,7 +59,14 @@ class ConsoleLinkApp(rumps.App if rumps else object):
         self.settings = self.store.load()
         self.service = None
         self.status_item = rumps.MenuItem("Waiting for console…")  # rumps keys items by title: keep distinct
-        self.phone_item = rumps.MenuItem("Phone address")
+        self.server_item = rumps.MenuItem("Server address")
+        self.qr_item = rumps.MenuItem("Show QR code…", callback=self.show_qr)
+        self.qr_window = None  # menubar_qr.QRWindow, made on first use
+        self._server_url = None
+        try:
+            menubar_qr.warm_up()  # before the USB thread starts: see warm_up()
+        except menubar_qr.QRUnavailable:
+            pass  # "Show QR code…" will say so when it is used
         self._start_service_or_alert()
         self.rebuild_menu()
         self.timer = rumps.Timer(self.refresh, 1)
@@ -107,6 +115,9 @@ class ConsoleLinkApp(rumps.App if rumps else object):
             rumps.alert("ConsoleLink", str(e))
             return False
         old = self.settings
+        # Names only: the control password must not end up in a terminal or a log.
+        print(f"[consolelink] settings changed ({', '.join(sorted(changes))}): restarting",
+              file=sys.stderr)
         self.stop_service()
         self.settings = new
         try:
@@ -129,17 +140,20 @@ class ConsoleLinkApp(rumps.App if rumps else object):
         art = s.artnet_dest or "off"
         settings_menu = rumps.MenuItem("Settings")
         for item in (
+            rumps.MenuItem("Remote access"),   # header: no callback, so greyed out
             toggle("Allow other devices on the network", self.toggle_network, s.listen == "network"),
             toggle("Allow control from the page", self.toggle_write, s.allow_write),
             rumps.MenuItem("Control password…", callback=self.set_password),
-            rumps.MenuItem(f"Art-Net destination… ({art})", callback=self.set_artnet),
-            rumps.MenuItem(f"Art-Net universe… ({s.artnet_universe})", callback=self.set_universe),
             rumps.MenuItem(f"Port… ({s.port})", callback=self.set_port),
+            None,                              # separator
+            rumps.MenuItem("Art-Net"),         # header
+            rumps.MenuItem(f"Destination… ({art})", callback=self.set_artnet),
+            rumps.MenuItem(f"Universe… ({s.artnet_universe})", callback=self.set_universe),
         ):
             settings_menu.add(item)
         items = [self.status_item, rumps.MenuItem("Open ConsoleLink", callback=self.open_page)]
         if s.listen == "network":
-            items.append(self.phone_item)
+            items += [self.server_item, self.qr_item]
         items += [None, settings_menu, None, rumps.MenuItem("Quit ConsoleLink", callback=self.quit)]
         self.menu.clear()
         self.menu = items
@@ -159,10 +173,17 @@ class ConsoleLinkApp(rumps.App if rumps else object):
             self.icon = _icon_path(connected)
         self.status_item.title = logic.status_text(connected, device, busy)
         if self.service is not None and self.service.port:
-            url = logic.phone_url(self.settings, self.service.port, logic.lan_ip())
-            self.phone_item.title = f"Phone: {url} (click to copy)" if url else "Phone: no network address"
-            self.phone_item.set_callback(self.copy_phone_url if url else None)
-            self._phone_url = url
+            url = logic.server_url(self.settings, self.service.port, logic.lan_ip())
+            self.server_item.title = (f"Server address: {url} (click to copy)" if url
+                                      else "Server address: no network address")
+            self.server_item.set_callback(self.copy_server_url if url else None)
+            self.qr_item.set_callback(self.show_qr if url else None)
+            self._server_url = url
+        if self.qr_window is not None and self.qr_window.is_open():
+            if self._server_url:
+                self.qr_window.update(self._server_url)  # the address changed: a new code
+            else:
+                self.qr_window.close()  # not served to the network any more
 
     # --- actions -------------------------------------------------------------------------
 
@@ -170,9 +191,20 @@ class ConsoleLinkApp(rumps.App if rumps else object):
         if self.service is not None and self.service.port:
             webbrowser.open(logic.local_url(self.service.port))
 
-    def copy_phone_url(self, _):
-        if getattr(self, "_phone_url", None):
-            _copy_to_clipboard(self._phone_url)
+    def copy_server_url(self, _):
+        if self._server_url:
+            _copy_to_clipboard(self._server_url)
+
+    def show_qr(self, _):
+        if not self._server_url:
+            return
+        try:
+            if self.qr_window is None:
+                self.qr_window = menubar_qr.QRWindow()
+            self.qr_window.show(self._server_url)
+        except menubar_qr.QRUnavailable as e:
+            rumps.alert("ConsoleLink", f"Can't draw the QR code: {e}\n\nThe address is "
+                                       f"{self._server_url}")
 
     def _ask_password(self):
         return _ask("Control password",
@@ -240,7 +272,8 @@ def main():
     if sys.platform != "darwin":
         sys.exit("The menu-bar app is for macOS. On this system run `consolelink` instead.")
     if rumps is None:
-        sys.exit("The menu-bar app needs rumps and keyring: pip install 'consolelink[macos]'")
+        sys.exit("The menu-bar app needs rumps and keyring: pip install '.[menubar]' "
+                 "(from the folder with pyproject.toml)")
     from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
     NSApplication.sharedApplication().setActivationPolicy_(NSApplicationActivationPolicyAccessory)
     ConsoleLinkApp().run()

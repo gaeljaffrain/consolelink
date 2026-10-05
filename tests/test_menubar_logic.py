@@ -21,12 +21,12 @@ def test_icon_files_exist():
         assert (folder / f"{name}.png").is_file()
 
 
-def test_phone_url_only_when_served_to_the_network():
+def test_server_url_only_when_served_to_the_network():
     local = app.Settings()
     network = app.Settings(listen="network")
-    assert logic.phone_url(local, 8765, "192.168.1.110") is None
-    assert logic.phone_url(network, 8765, "192.168.1.110") == "http://192.168.1.110:8765"
-    assert logic.phone_url(network, 8765, None) is None
+    assert logic.server_url(local, 8765, "192.168.1.110") is None
+    assert logic.server_url(network, 8765, "192.168.1.110") == "http://192.168.1.110:8765"
+    assert logic.server_url(network, 8765, None) is None
 
 
 def test_needs_password():
