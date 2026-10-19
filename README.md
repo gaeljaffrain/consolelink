@@ -89,6 +89,8 @@ extra also installs `rumps` and `keyring`, which the menu-bar app
 ([below](#macos-menu-bar-app)) needs (macOS only: elsewhere the extra adds nothing).
 To update later: `pipx upgrade consolelink`.
 
+**Linux and Raspberry Pi** users may need to allow the user to access USB, see more info [below](#usb-permissions).
+
 ### pip
 
 The same packages with plain `pip`, inside a virtual environment:
@@ -311,6 +313,34 @@ commits it, and creates an annotated tag, so the file and the tag can't drift ap
 Don't edit `VERSION` by hand. 
 
 Bump on a feature branch is blocked.
+
+## Linux / Raspberry Pi - extra instructions and problem solving
+
+### USB permissions
+
+On Linux, regular users can't access raw USB devices by default, so consolelink
+will report `Access denied (insufficient permissions)`. Instead of running it
+with `sudo`, add a udev rule.
+
+First, with the console plugged in, check its vendor and product IDs:
+
+```bash
+lsusb | grep 14d5
+```
+
+You should see a line containing `ID 14d5:0201` (SmartFade ML). Then create
+the rule, adjusting the product ID if yours differs:
+
+```bash
+sudo tee /etc/udev/rules.d/99-consolelink.rules <<'EOF'
+SUBSYSTEM=="usb", ATTRS{idVendor}=="14d5", ATTRS{idProduct}=="0201", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+EOF
+sudo udevadm control --reload-rules && sudo udevadm trigger
+```
+
+Then unplug and replug the console. If you're connecting over SSH or on a
+headless system, make sure your user is in the `plugdev` group
+(`sudo usermod -aG plugdev $USER`, then log out and back in).
 
 ## License
 
