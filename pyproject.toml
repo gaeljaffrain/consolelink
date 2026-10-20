@@ -7,7 +7,7 @@ name = "consolelink"
 dynamic = ["version"]
 description = "Web interface and Art-Net output for ETC SmartFade ML lighting consoles, over USB"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.13"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Gaël Jaffrain" }]
@@ -20,6 +20,8 @@ classifiers = [
     "Operating System :: MacOS",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Multimedia",
 ]
 dependencies = ["pyusb"]  # libusb itself is a native library: see README (Requirements)
@@ -52,7 +54,7 @@ consolelink = ["static/*", "menubar_icons/*"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 
-# `bump-my-version bump patch|minor|major` edits VERSION, commits and tags (see README, Releasing).
+# `bump-my-version bump patch|minor|major` edits VERSION, commits and tags (see CONTRIBUTING.md, Releasing).
 [tool.bumpversion]
 current_version = "0.1.7"
 commit = true
