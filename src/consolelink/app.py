@@ -829,6 +829,10 @@ class QuietThreadingHTTPServer(ThreadingHTTPServer):
     a closed/reset connection (routine for a long-lived SSE stream, e.g. a browser tab closing
     mid-request) -- not a crash, just noisy; the server and every other connection keep running."""
 
+    # HTTPServer sets SO_REUSEADDR, which on Windows lets a second server bind a port already in
+    # use instead of failing; Windows can rebind a TIME_WAIT port without it anyway.
+    allow_reuse_address = sys.platform != "win32"
+
     def handle_error(self, request, client_address):
         exc_type = sys.exc_info()[0]
         if exc_type in (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):

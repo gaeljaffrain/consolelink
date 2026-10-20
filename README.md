@@ -87,9 +87,13 @@ To update later: `pipx upgrade consolelink`.
 
 **Linux and Raspberry Pi** users may need to allow the user to access USB, see more info [below](#usb-permissions).
 
-**Windows** (not tried yet): libusb can only open the console if it uses the generic WinUSB
-driver. If the ETC driver installed with SmartSoft owns it, switch the console to WinUSB with
-[Zadig](https://zadig.akeo.ie) (SmartSoft won't see the console until it's switched back).
+**Windows** users need to switch the console to the generic WinUSB driver once, because libusb
+can't open it through the ETC driver installed with SmartSoft. Use
+[Zadig](https://zadig.akeo.ie): Options → List All Devices. The console shows up as two ETC
+SmartFade entries, interface 0 and interface 1: select each in turn, choose WinUSB and click
+Replace Driver. Then replug the console; no reboot needed. SmartSoft won't see the console while
+it uses WinUSB. To switch back, uninstall the device in Device Manager (tick "delete the driver
+software") and replug, or reinstall SmartSoft.
 
 ### pip
 
