@@ -43,9 +43,10 @@ And on a phone, where each row wraps to 6 columns:
 
 - Python 3.13 or newer. macOS's built-in `python3` is older (3.9): install a current one, for
   example `brew install python`, and create the virtual environment below with it
-- A native `libusb` library, which `pyusb` uses to talk to the console:
-  `brew install libusb` on macOS, `sudo apt install libusb-1.0-0` on Debian/Ubuntu
-  (Windows: not tried)
+- The native `libusb` library, which `pyusb` uses to talk to the console. It is installed with
+  ConsoleLink (bundled by the `libusb-package` dependency) on macOS, Windows and 64-bit Linux,
+  including 64-bit Raspberry Pi OS. On 32-bit Raspberry Pi OS and Windows on ARM, install it
+  separately: `sudo apt install libusb-1.0-0` (often already there)
 - The console connected over USB and powered on
 
 ConsoleLink looks for the console at `idVendor=0x14D5, idProduct=0x0201` and
@@ -79,12 +80,16 @@ Then install ConsoleLink, depending on your system:
   pipx install consolelink
   ```
 
-Both install `pyusb`, the package with its web files, and the `consolelink` command. The `menubar`
-extra also installs `rumps` and `keyring`, which the menu-bar app
+Both install `pyusb` and `libusb-package`, the package with its web files, and the `consolelink`
+command. The `menubar` extra also installs `rumps` and `keyring`, which the menu-bar app
 ([below](#macos-menu-bar-app)) needs (macOS only: elsewhere the extra adds nothing).
 To update later: `pipx upgrade consolelink`.
 
 **Linux and Raspberry Pi** users may need to allow the user to access USB, see more info [below](#usb-permissions).
+
+**Windows** (not tried yet): libusb can only open the console if it uses the generic WinUSB
+driver. If the ETC driver installed with SmartSoft owns it, switch the console to WinUSB with
+[Zadig](https://zadig.akeo.ie) (SmartSoft won't see the console until it's switched back).
 
 ### pip
 
@@ -105,7 +110,7 @@ Activate the environment again (`source consolelink-env/bin/activate`) in any ne
 running `consolelink`.
 
 Using conda? `conda install pipx` and follow the pipx steps, or run the pip command inside a conda
-environment (conda-forge also provides `libusb`, so no separate system install).
+environment.
 
 ## Usage
 

@@ -81,6 +81,11 @@ from urllib.parse import parse_qs, urlsplit
 import usb.core
 import usb.util
 
+try:
+    import libusb_package  # bundles libusb; not installed where it has no wheel (see pyproject.toml)
+except ImportError:
+    libusb_package = None
+
 from . import artnet
 from . import protocol as sfl
 
@@ -427,10 +432,15 @@ def handle_payload(obj_type, data):
 
 def poll_forever(stop_event):
     """Connect, poll until something goes wrong or the device disappears, then retry."""
+    # The libusb bundled with libusb-package if it loads; None makes pyusb look for a system libusb.
+    backend = libusb_package.get_libusb1_backend() if libusb_package else None
+    if debug:
+        lib = libusb_package.get_library_path() if backend is not None else None
+        print(f"[consolelink] libusb: {lib or 'system'}", file=sys.stderr)
     waiting_reported = False
     busy_reported = False
     while not stop_event.is_set():
-        dev = usb.core.find(idVendor=sfl.VENDOR_ID, idProduct=sfl.PRODUCT_ID)
+        dev = usb.core.find(idVendor=sfl.VENDOR_ID, idProduct=sfl.PRODUCT_ID, backend=backend)
         found = sfl.find_bulk_interface(dev) if dev is not None else None
         if found is None:
             update_state(connected=False, device=None, console_busy=False)
