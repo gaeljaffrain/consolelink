@@ -18,13 +18,20 @@ classifiers = [
     "Environment :: Web Environment",
     "Intended Audience :: End Users/Desktop",
     "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Multimedia",
 ]
-dependencies = ["pyusb"]  # libusb itself is a native library: see README (Requirements)
+dependencies = [
+    "pyusb",
+    # pyusb needs the native libusb library: libusb-package bundles it, but only has wheels for these
+    # platforms (no sdist). Elsewhere (32-bit Raspberry Pi OS, Windows on ARM) pyusb finds the system
+    # libusb: see README (Requirements).
+    "libusb-package; sys_platform == 'darwin' or (sys_platform == 'win32' and platform_machine != 'ARM64') or (sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64'))",
+]
 
 [project.optional-dependencies]
 menubar = [  # the menu-bar app (consolelink-menubar); installs nothing off macOS

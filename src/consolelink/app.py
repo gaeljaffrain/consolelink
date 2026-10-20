@@ -81,6 +81,11 @@ from urllib.parse import parse_qs, urlsplit
 import usb.core
 import usb.util
 
+try:
+    import libusb_package  # bundles libusb; not installed where it has no wheel (see pyproject.toml)
+except ImportError:
+    libusb_package = None
+
 from . import artnet
 from . import protocol as sfl
 
@@ -427,10 +432,15 @@ def handle_payload(obj_type, data):
 
 def poll_forever(stop_event):
     """Connect, poll until something goes wrong or the device disappears, then retry."""
+    # The libusb bundled with libusb-package if it loads; None makes pyusb look for a system libusb.
+    backend = libusb_package.get_libusb1_backend() if libusb_package else None
+    if debug:
+        lib = libusb_package.get_library_path() if backend is not None else None
+        print(f"[consolelink] libusb: {lib or 'system'}", file=sys.stderr)
     waiting_reported = False
     busy_reported = False
     while not stop_event.is_set():
-        dev = usb.core.find(idVendor=sfl.VENDOR_ID, idProduct=sfl.PRODUCT_ID)
+        dev = usb.core.find(idVendor=sfl.VENDOR_ID, idProduct=sfl.PRODUCT_ID, backend=backend)
         found = sfl.find_bulk_interface(dev) if dev is not None else None
         if found is None:
             update_state(connected=False, device=None, console_busy=False)
@@ -818,6 +828,10 @@ class QuietThreadingHTTPServer(ThreadingHTTPServer):
     above would silently never fire. Suppresses socketserver's default full-traceback print for
     a closed/reset connection (routine for a long-lived SSE stream, e.g. a browser tab closing
     mid-request) -- not a crash, just noisy; the server and every other connection keep running."""
+
+    # HTTPServer sets SO_REUSEADDR, which on Windows lets a second server bind a port already in
+    # use instead of failing; Windows can rebind a TIME_WAIT port without it anyway.
+    allow_reuse_address = sys.platform != "win32"
 
     def handle_error(self, request, client_address):
         exc_type = sys.exc_info()[0]

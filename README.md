@@ -20,12 +20,13 @@ Use at your own risk; no warranty is provided.
 - [Screenshots](#screenshots)
 - [Requirements](#requirements)
 - [Install](#install)
-  - [pipx](#pipx-recommended)
-  - [pip](#pip)
+  - [macOS](#macos)
+  - [Linux and Raspberry Pi](#linux-and-raspberry-pi)
+  - [Windows](#windows)
+  - [Other ways: pip, conda](#other-ways-pip-conda)
 - [Usage](#usage)
   - [macOS menu-bar app](#macos-menu-bar-app)
   - [Art-Net output](#art-net-output)
-- [Linux / Raspberry Pi](#linux--raspberry-pi---extra-instructions-and-problem-solving)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -41,71 +42,106 @@ And on a phone, where each row wraps to 6 columns:
 
 ## Requirements
 
-- Python 3.13 or newer. macOS's built-in `python3` is older (3.9): install a current one, for
-  example `brew install python`, and create the virtual environment below with it
-- A native `libusb` library, which `pyusb` uses to talk to the console:
-  `brew install libusb` on macOS, `sudo apt install libusb-1.0-0` on Debian/Ubuntu
-  (Windows: not tried)
+- Python 3.13 or newer
 - The console connected over USB and powered on
-
-ConsoleLink looks for the console at `idVendor=0x14D5, idProduct=0x0201` and
-claims the vendor bulk interface directly — no vendor driver required, but you
-may need permissions to access the raw USB device (on macOS this generally
-works out of the box for a user-space process).
 
 ## Install
 
-### pipx (recommended)
+The recommended way is [pipx](https://pipx.pypa.io): it installs a command-line app into its own
+private environment and puts the command on your PATH, so there is no virtual environment to
+create or activate. It installs the `consolelink` command and all dependencies. To update later: `pipx upgrade consolelink`.
 
-[pipx](https://pipx.pypa.io) installs a command-line app into its own private environment and puts
-the command on your PATH, so there is no virtual environment to create or activate.
-Install pipx first if you don't have it:
+### macOS
 
-- macOS: `brew install pipx`
-- Debian, Ubuntu, Raspberry Pi OS: `sudo apt install pipx`
-- Anywhere with Python: `python3 -m pip install --user pipx`
+1. Install Python 3.13 or newer and pipx. macOS's built-in `python3` is older (3.9), so use
+   [Homebrew](https://brew.sh): `brew install python pipx`, then `pipx ensurepath`.
+2. Install ConsoleLink with the menu-bar app ([below](#macos-menu-bar-app)):
 
-Then install ConsoleLink, depending on your system:
+   ```
+   pipx install 'consolelink[menubar]'
+   ```
 
-- **macOS (includes the menu-bar app):**
+   For the command line only: `pipx install consolelink`. The `menubar` extra adds `rumps` and
+   `keyring`, which the menu-bar app needs.
 
-  ```
-  pipx install 'consolelink[menubar]'
-  ```
+USB access works out of the box on macOS.
 
-- **Linux, Windows, Raspberry Pi, or macOS with the command line only:**
+### Linux and Raspberry Pi
 
-  ```
-  pipx install consolelink
-  ```
+1. Check that `python3 --version` reports 3.13 or newer, then install pipx:
+   `sudo apt install pipx`, then `pipx ensurepath`.
+2. Install ConsoleLink:
 
-Both install `pyusb`, the package with its web files, and the `consolelink` command. The `menubar`
-extra also installs `rumps` and `keyring`, which the menu-bar app
-([below](#macos-menu-bar-app)) needs (macOS only: elsewhere the extra adds nothing).
-To update later: `pipx upgrade consolelink`.
+   ```
+   pipx install consolelink
+   ```
 
-**Linux and Raspberry Pi** users may need to allow the user to access USB, see more info [below](#usb-permissions).
+3. On 32-bit Raspberry Pi OS only, install libusb (often already there):
+   `sudo apt install libusb-1.0-0`.
+4. Allow your user to access the console over USB, see [USB permissions](#usb-permissions) below.
 
-### pip
+#### USB permissions
 
-The same packages with plain `pip`, inside a virtual environment:
+On Linux, regular users can't access raw USB devices by default, so consolelink
+will report `Access denied (insufficient permissions)`. Instead of running it
+with `sudo`, add a udev rule.
+
+First, with the console plugged in, check its vendor and product IDs:
+
+```bash
+lsusb | grep 14d5
+```
+
+You should see a line containing `ID 14d5:0201` (SmartFade ML). Then create
+the rule, adjusting the product ID if yours differs:
+
+```bash
+sudo tee /etc/udev/rules.d/99-consolelink.rules <<'EOF'
+SUBSYSTEM=="usb", ATTRS{idVendor}=="14d5", ATTRS{idProduct}=="0201", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+EOF
+sudo udevadm control --reload-rules && sudo udevadm trigger
+```
+
+Then unplug and replug the console. If you're connecting over SSH or on a
+headless system, make sure your user is in the `plugdev` group
+(`sudo usermod -aG plugdev $USER`, then log out and back in).
+
+### Windows
+
+1. Install Python 3.13 or newer from [python.org](https://www.python.org/downloads/), then pipx:
+   `py -m pip install --user pipx`, then `py -m pipx ensurepath` and open a new terminal.
+2. Install ConsoleLink:
+
+   ```
+   pipx install consolelink
+   ```
+
+3. Switch the console to the generic WinUSB driver, once: libusb can't open it through the ETC
+   driver installed with SmartSoft. Use [Zadig](https://zadig.akeo.ie): Options → List All
+   Devices. The console shows up as two ETC SmartFade entries, interface 0 and interface 1:
+   select each in turn, choose WinUSB and click Replace Driver. Then replug the console; no reboot
+   needed.
+
+   SmartSoft won't see the console while it uses WinUSB. To switch back, uninstall the device in
+   Device Manager (tick "delete the driver software") and replug, or reinstall SmartSoft.
+
+### Other ways: pip, conda
+
+The same packages with plain `pip`, inside a virtual environment created with Python 3.13 or newer
+(on macOS, Homebrew's versioned packages such as `python@3.13` only provide `python3.13`, not
+`python3`: use that command instead):
 
 ```
 python3 -m venv consolelink-env
-source consolelink-env/bin/activate
-pip install 'consolelink[menubar]'   # macOS; everywhere else: pip install consolelink
+source consolelink-env/bin/activate      # Windows: consolelink-env\Scripts\activate
+pip install 'consolelink[menubar]'       # macOS; everywhere else: pip install consolelink
 ```
 
-Check first that `python3 --version` reports 3.13 or newer. On macOS it often doesn't (the system
-`python3` is 3.9, and Homebrew's versioned packages such as `python@3.13` only provide
-`python3.13`, not `python3`): then create the environment with the versioned command instead,
-`python3.13 -m venv consolelink-env`.
-
-Activate the environment again (`source consolelink-env/bin/activate`) in any new terminal before
-running `consolelink`.
+Activate the environment again in any new terminal before running `consolelink`. The per-system
+steps above (USB permissions on Linux, WinUSB on Windows) still apply.
 
 Using conda? `conda install pipx` and follow the pipx steps, or run the pip command inside a conda
-environment (conda-forge also provides `libusb`, so no separate system install).
+environment.
 
 ## Usage
 
@@ -213,34 +249,6 @@ console is unplugged, the last frame keeps being sent.
 
 Frames go console → USB → this program → UDP with no timing guarantee, so this is fine for
 visualisation and casual use, not for anything where a stall or a frozen frame would be a problem.
-
-## Linux / Raspberry Pi - extra instructions and problem solving
-
-### USB permissions
-
-On Linux, regular users can't access raw USB devices by default, so consolelink
-will report `Access denied (insufficient permissions)`. Instead of running it
-with `sudo`, add a udev rule.
-
-First, with the console plugged in, check its vendor and product IDs:
-
-```bash
-lsusb | grep 14d5
-```
-
-You should see a line containing `ID 14d5:0201` (SmartFade ML). Then create
-the rule, adjusting the product ID if yours differs:
-
-```bash
-sudo tee /etc/udev/rules.d/99-consolelink.rules <<'EOF'
-SUBSYSTEM=="usb", ATTRS{idVendor}=="14d5", ATTRS{idProduct}=="0201", MODE="0660", GROUP="plugdev", TAG+="uaccess"
-EOF
-sudo udevadm control --reload-rules && sudo udevadm trigger
-```
-
-Then unplug and replug the console. If you're connecting over SSH or on a
-headless system, make sure your user is in the `plugdev` group
-(`sudo usermod -aG plugdev $USER`, then log out and back in).
 
 ## Contributing
 

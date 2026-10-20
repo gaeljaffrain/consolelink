@@ -31,7 +31,8 @@ def test_serves_then_stops_and_frees_the_port():
     finally:
         service.stop()
     with socket.socket() as sock:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # as the server itself does
+        if app.QuietThreadingHTTPServer.allow_reuse_address:  # as the server itself does
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("127.0.0.1", port))  # nothing listens any more
 
 
